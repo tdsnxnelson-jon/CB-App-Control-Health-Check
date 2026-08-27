@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pptx
+*.log
+._preview_slide_50_51/
+_preview_exec_redesign/
