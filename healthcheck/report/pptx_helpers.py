@@ -164,8 +164,14 @@ def add_metric_strip(slide, metrics: Sequence[Tuple[str, str, str]], left=MARGIN
         card.fill.solid()
         card.fill.fore_color.rgb = tone
         card.line.color.rgb = LIGHT_GRID
-        _add_text(slide, x + 0.16, top + 0.12, 0.55, 0.36, str(value), size=18, bold=True, color=SEVERITY_COLORS.get(severity, NAVY), anchor=MSO_ANCHOR.MIDDLE)
-        _add_text(slide, x + 0.78, top + 0.16, card_w - 0.92, 0.32, label, size=10, bold=True, color=MUTED_TEXT, anchor=MSO_ANCHOR.MIDDLE)
+        # longer values (e.g. "77 (C)") get a wider box and smaller font so they stay on one line
+        value_text = str(value)
+        value_w = 0.55 if len(value_text) <= 2 else min(1.05, 0.55 + 0.11 * (len(value_text) - 2))
+        value_size = 18 if len(value_text) <= 2 else 14
+        value_box = _add_text(slide, x + 0.16, top + 0.12, value_w, 0.36, value_text, size=value_size, bold=True, color=SEVERITY_COLORS.get(severity, NAVY), anchor=MSO_ANCHOR.MIDDLE)
+        value_box.text_frame.word_wrap = False
+        label_x = x + 0.16 + value_w + 0.07
+        _add_text(slide, label_x, top + 0.16, x + card_w - 0.16 - label_x, 0.32, label, size=10, bold=True, color=MUTED_TEXT, anchor=MSO_ANCHOR.MIDDLE)
 
 
 def _normalize_findings(items: Sequence, max_items=None) -> List[Tuple]:

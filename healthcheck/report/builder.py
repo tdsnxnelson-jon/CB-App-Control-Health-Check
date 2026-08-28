@@ -6,11 +6,16 @@ import logging
 import re
 from typing import Optional
 
+from .. import config
 from ..ingest import IngestResult
 from ..report import pptx_helpers as ph
 from ..analysis import fleet_health, rule_analysis, custom_rules, computer_inventory, approval_events, block_analysis, unapproved_files, database_errors, orphaned_data, server_health, db_maintenance
 
 log = logging.getLogger(__name__)
+
+# "purge_antibodies_scope" reports into the same weighted bucket as
+# "db_maintenance" - they're shown as one "Database maintenance" section.
+_SCORE_GROUP = {"purge_antibodies_scope": "db_maintenance"}
 
 
 def build_report(results: dict, customer_name: str, output_path: str, appc_server: Optional[str] = None) -> str:
@@ -74,6 +79,40 @@ def build_report(results: dict, customer_name: str, output_path: str, appc_serve
     return output_path
 
 
+def _score_section(findings) -> float:
+    """100 minus per-finding severity penalties (config.HEALTH_SCORE), floored at 0."""
+    penalties = config.HEALTH_SCORE["penalties"]
+    score = 100 - sum(penalties.get(f.severity, 0) for f in findings)
+    return max(0, score)
+
+
+def _overall_health_score(all_findings) -> Optional[float]:
+    """Weighted average of section scores, using only sections that ran."""
+    weights = config.HEALTH_SCORE["weights"]
+    grouped: dict = {}
+    for key, findings in all_findings:
+        group = _SCORE_GROUP.get(key, key)
+        grouped.setdefault(group, []).extend(findings)
+
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for group, findings in grouped.items():
+        weight = weights.get(group, 1)
+        weighted_sum += weight * _score_section(findings)
+        total_weight += weight
+
+    if total_weight == 0:
+        return None
+    return weighted_sum / total_weight
+
+
+def _grade_for_score(score: float) -> str:
+    for threshold, grade in config.HEALTH_SCORE["grade_bands"]:
+        if score >= threshold:
+            return grade
+    return "F"
+
+
 def _add_executive_summary(prs, all_findings):
     """Inserts a top-level summary slide right after the title slide,
     listing only critical/warning findings across every section."""
@@ -88,12 +127,19 @@ def _add_executive_summary(prs, all_findings):
     slide = ph.add_content_slide(prs, "Executive Summary")
     critical_count = sum(1 for _, sev, _, _ in highlights if sev == "critical")
     warning_count = sum(1 for _, sev, _, _ in highlights if sev == "warning")
-    sections_count = len({key for _, _, key, _ in highlights})
-    ph.add_metric_strip(slide, [
+    sections_count = len({_section_label(key) for _, _, key, _ in highlights[:8]})
+
+    metrics = [
         ("High-priority issues", critical_count, "critical" if critical_count else "ok"),
         ("Items to watch", warning_count, "warning" if warning_count else "ok"),
         ("Areas affected", sections_count, "info"),
-    ])
+    ]
+    score = _overall_health_score(all_findings)
+    if score is not None:
+        grade = _grade_for_score(score)
+        tone = "ok" if grade in ("A", "B") else "warning" if grade == "C" else "critical"
+        metrics.insert(0, ("Overall health score", f"{score:.0f} ({grade})", tone))
+    ph.add_metric_strip(slide, metrics)
     items = [(sev, f"{_section_label(key)}: {msg}") for _, sev, key, msg in highlights[:8]] or [("ok", "No high-priority concerns were found in the analyzed data.")]
     ph.add_finding_cards(slide, items, top=ph.CONTENT_TOP + 0.95, height=ph.CONTENT_H - 0.95, show_recommendations=False, max_items=8)
 

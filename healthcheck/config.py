@@ -162,3 +162,42 @@ SCRIPTS = {
         },
     },
 }
+
+# Overall health score configuration.
+#
+# Each analysis section starts at 100 points and loses points per finding
+# based on severity (see "penalties"). The overall score is the weighted
+# average of section scores, using only sections that produced findings for
+# this customer (missing/skipped inputs don't drag the score down).
+#
+# "db_maintenance" and "purge_antibodies_scope" share one weight/label since
+# they're presented as a single "Database maintenance" section in the report.
+HEALTH_SCORE = {
+    "weights": {
+        "fleet_health": 3,
+        "server_health": 3,
+        "database_errors": 2,
+        "db_maintenance": 2,
+        "rule_analysis": 1,
+        "custom_rules": 1,
+        "computer_inventory": 1,
+        "approval_events": 1,
+        "block_analysis": 1,
+        "unapproved_files": 1,
+        "orphaned_data": 1,
+    },
+    "penalties": {
+        "critical": 25,
+        "warning": 10,
+        "caution": 5,
+        "info": 0,
+    },
+    # score thresholds for the letter grade shown next to the number
+    "grade_bands": [
+        (90, "A"),
+        (80, "B"),
+        (70, "C"),
+        (60, "D"),
+        (0, "F"),
+    ],
+}
