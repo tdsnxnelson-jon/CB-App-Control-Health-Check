@@ -105,6 +105,72 @@ tool logs a warning and skips just that section rather than failing.
 - **Executive Summary** - all critical/warning findings across every
   section, on one slide up front.
 
+## Health score and weighting
+
+The Executive Summary includes an overall health score and letter grade when
+at least one analysis section runs. Each analyzed section starts at 100 and
+loses points for its findings:
+
+$$
+\mathrm{section\ score} = \max(0, 100 - \sum \mathrm{severity\ penalties})
+$$
+
+The overall score is the weighted average of the available section scores:
+
+$$
+\mathrm{overall\ score} = \frac{\sum(\mathrm{section\ score} \times \mathrm{weight})}{\sum \mathrm{weight}}
+$$
+
+Only sections with usable input are included. Missing, unreadable, or skipped
+exports do not reduce the score or contribute their weight. The DailyPrune and
+purge-antibodies analyses share the single **Database maintenance** score and
+weight because they are presented as one report section.
+
+Configure scoring in `healthcheck/config.py`, in the `HEALTH_SCORE` mapping:
+
+```python
+HEALTH_SCORE = {
+    "weights": {
+        "fleet_health": 3,
+        "server_health": 3,
+        "database_errors": 2,
+        # Other sections default to weight 1 when omitted.
+    },
+    "penalties": {
+        "critical": 25,
+        "warning": 10,
+        "caution": 5,
+        "info": 0,
+    },
+    "grade_bands": [
+          (97, "A+"),
+          (93, "A"),
+          (90, "A-"),
+          (87, "B+"),
+          (83, "B"),
+          (80, "B-"),
+          (77, "C+"),
+          (73, "C"),
+          (70, "C-"),
+          (67, "D+"),
+          (63, "D"),
+          (60, "D-"),
+        (0, "F"),
+    ],
+}
+```
+
+- Increase a section's weight to make it contribute more to the overall score;
+  use whole numbers for clear, predictable weighting. Sections omitted from
+  `weights` use `1`.
+- Increase a severity penalty to make each finding at that severity reduce its
+  section score more sharply. Scores cannot fall below `0`.
+- Keep `grade_bands` in descending score order. The first threshold met is the
+  grade shown in the Executive Summary.
+- Use the analysis keys shown in the `weights` mapping. In particular, use
+  `db_maintenance`, not `purge_antibodies_scope`, for the shared maintenance
+  weight.
+
 ## Project layout
 
 ```

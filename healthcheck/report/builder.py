@@ -137,7 +137,7 @@ def _add_executive_summary(prs, all_findings):
     score = _overall_health_score(all_findings)
     if score is not None:
         grade = _grade_for_score(score)
-        tone = "ok" if grade in ("A", "B") else "warning" if grade == "C" else "critical"
+        tone = "ok" if grade[0] in ("A", "B") else "warning" if grade[0] == "C" else "critical"
         metrics.insert(0, ("Overall health score", f"{score:.0f} ({grade})", tone))
     ph.add_metric_strip(slide, metrics)
     items = [(sev, f"{_section_label(key)}: {msg}") for _, sev, key, msg in highlights[:8]] or [("ok", "No high-priority concerns were found in the analyzed data.")]

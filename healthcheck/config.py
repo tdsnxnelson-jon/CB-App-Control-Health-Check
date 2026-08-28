@@ -194,10 +194,18 @@ HEALTH_SCORE = {
     },
     # score thresholds for the letter grade shown next to the number
     "grade_bands": [
-        (90, "A"),
-        (80, "B"),
-        (70, "C"),
-        (60, "D"),
+           (97, "A+"),
+           (93, "A"),
+           (90, "A-"),
+           (87, "B+"),
+           (83, "B"),
+           (80, "B-"),
+           (77, "C+"),
+           (73, "C"),
+           (70, "C-"),
+           (67, "D+"),
+           (63, "D"),
+           (60, "D-"),
         (0, "F"),
     ],
 }
