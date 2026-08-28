@@ -159,11 +159,12 @@ def add_metric_strip(slide, metrics: Sequence[Tuple[str, str, str]], left=MARGIN
     card_w = (width - gap * (len(metrics) - 1)) / len(metrics)
     for i, (label, value, severity) in enumerate(metrics):
         x = left + i * (card_w + gap)
-        tone = SEVERITY_TONES.get(severity, SOFT_BG)
         card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(top), Inches(card_w), Inches(height))
         card.fill.solid()
-        card.fill.fore_color.rgb = tone
+        card.fill.fore_color.rgb = WHITE
         card.line.color.rgb = LIGHT_GRID
+        if severity:
+            _add_rect(slide, x, top, 0.06, height, SEVERITY_COLORS.get(severity, ACCENT))
         # longer values (e.g. "77 (C)") get a wider box and smaller font so they stay on one line
         value_text = str(value)
         value_w = 0.55 if len(value_text) <= 2 else min(1.05, 0.55 + 0.11 * (len(value_text) - 2))
@@ -249,11 +250,10 @@ def add_finding_cards(slide, items: Sequence, left=MARGIN, top=CONTENT_TOP, widt
         x = left + col * (card_w + gap_x)
         y = top + sum(row_heights[:row]) + row * gap_y
         severity_color = SEVERITY_COLORS.get(severity, ACCENT)
-        tone = SEVERITY_TONES.get(severity, SOFT_BG)
 
         card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(card_w), Inches(card_h))
         card.fill.solid()
-        card.fill.fore_color.rgb = tone
+        card.fill.fore_color.rgb = WHITE
         card.line.color.rgb = LIGHT_GRID
         _add_rect(slide, x, y, 0.08, card_h, severity_color)
 
