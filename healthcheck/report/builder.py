@@ -127,7 +127,7 @@ def _add_executive_summary(prs, all_findings):
     slide = ph.add_content_slide(prs, "Executive Summary")
     critical_count = sum(1 for _, sev, _, _ in highlights if sev == "critical")
     warning_count = sum(1 for _, sev, _, _ in highlights if sev == "warning")
-    sections_count = len({_section_label(key) for _, _, key, _ in highlights[:8]})
+    sections_count = len({_section_label(key) for _, _, key, _ in highlights})
 
     metrics = [
         ("High-priority issues", critical_count, "critical" if critical_count else "ok"),
@@ -142,6 +142,7 @@ def _add_executive_summary(prs, all_findings):
     ph.add_metric_strip(slide, metrics)
     items = [(sev, f"{_section_label(key)}: {msg}") for _, sev, key, msg in highlights[:8]] or [("ok", "No high-priority concerns were found in the analyzed data.")]
     ph.add_finding_cards(slide, items, top=ph.CONTENT_TOP + 0.95, height=ph.CONTENT_H - 0.95, show_recommendations=False, max_items=8)
+    ph.add_footnote(slide, "Showing the top eight critical and warning findings, ordered by severity.")
 
     # move this slide to position 1 (right after the title slide)
     xml_slides = prs.slides._sldIdLst
