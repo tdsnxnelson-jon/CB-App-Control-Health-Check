@@ -45,7 +45,10 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
         if top_pub and str(top_pub).strip() and total:
             pct = top_pub_count / total
             if pct > 0.1:
-                result.findings.append(Finding("caution", f"Publisher '{top_pub}' accounts for {pct:.0%} of unapproved files - consider a publisher-level approval rule.", "If this vendor's software is expected/trusted, add a publisher-level approval rule instead of approving files one at a time."))
+                if top_pub == "(No Publisher / Unsigned)":
+                    result.findings.append(Finding("caution", f"Publisher '{top_pub}' accounts for {pct:.0%} of unapproved files - consider creating File Creation rule(s).", "Publisher approval rules cannot match unsigned files; create targeted File Creation Control rules for trusted file paths or processes."))
+                else:
+                    result.findings.append(Finding("caution", f"Publisher '{top_pub}' accounts for {pct:.0%} of unapproved files - consider a publisher-level approval rule.", "If this vendor's software is expected/trusted, add a publisher-level approval rule instead of approving files one at a time."))
 
     result.tables["top_publishers"] = [["Publisher", "Unapproved Files"]] + [[p, int(v)] for p, v in by_publisher.head(TOP_N).items()]
     result.tables["top_paths"] = [["File Path", "Occurrences"]] + [[p, int(v)] for p, v in by_path_dir.head(TOP_N).items()]

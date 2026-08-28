@@ -95,15 +95,19 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
         worst = df.assign(_sync=sync).sort_values("_sync").head(15)[worst_cols]
         result.tables["worst_sync"] = [worst_cols] + worst.astype(object).where(pd.notna(worst), "").values.tolist()
 
-    approval_source_cols = [
-        "#Global Approval", "#Global TD", "#Global Rep", "#Global Oth",
-        "#Local Approval: Initialization", "#Local Approval: UnValidated",
-        "#Local Approval: Policy", "#Local Approval: Rule",
+    approval_source_labels = [
+        ("#Global TD", "Global: Trusted directory"),
+        ("#Global Rep", "Global: Reputation"),
+        ("#Global Oth", "Global: Other"),
+        ("#Local Approval: UnValidated", "Local: Initialization (unvalidated)"),
+        ("#Local Approval: Policy", "Local: Policy"),
+        ("#Local Approval: Rule", "Local: Rule"),
     ]
-    present = [c for c in approval_source_cols if c in df.columns]
+    present = [(column, label) for column, label in approval_source_labels if column in df.columns]
     if present:
-        totals = {c: pd.to_numeric(df[c], errors="coerce").sum() for c in present}
-        result.charts["approval_sources"] = ("pie", list(totals.keys()), list(totals.values()))
+        categories = [label for _, label in present]
+        values = [pd.to_numeric(df[column], errors="coerce").sum() for column, _ in present]
+        result.charts["approval_sources"] = ("bar", categories, values, total)
 
     return result
 
@@ -124,6 +128,7 @@ def build_slides(prs, result: AnalysisResult) -> None:
         ph.add_table(slide, result.tables["worst_sync"], font_size=10, center=True)
 
     if "approval_sources" in result.charts:
-        kind, categories, values = result.charts["approval_sources"]
+        kind, categories, values, endpoint_count = result.charts["approval_sources"]
         slide = ph.add_content_slide(prs, "Fleet Health - Approval Source Breakdown")
-        ph.add_pie_chart(slide, "File Approval Sources", categories, values)
+        ph.add_bar_chart(slide, "Approved File Instances by Source (Current Snapshot)", categories, {"File instances": values}, horizontal=True)
+        ph.add_footnote(slide, f"These are not events over a period. They are file instances across {endpoint_count:,} endpoints at export time.")

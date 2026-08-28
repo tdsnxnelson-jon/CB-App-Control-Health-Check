@@ -40,12 +40,16 @@ def analyze(sheets: dict) -> AnalysisResult:
         for _, row in sync_df.iterrows():
             pct = pd.to_numeric(row.get("Agent Sync Percent"), errors="coerce")
             label = row.get("Type", "sync")
+            if "non-disabled" in str(label).casefold() and "defcon" in str(label).casefold():
+                label = "active endpoints polled within 3 days"
+            elif "all non deleted" in str(label).casefold():
+                label = "non-deleted endpoints polled within 3 days"
             if pd.isna(pct):
                 continue
             if pct < SYNC_WARN_THRESHOLD:
-                result.findings.append(Finding("warning", f"Agent sync ({label}) is {pct:.0f}%, below the {SYNC_WARN_THRESHOLD:.0f}% target.", "See the Fleet Health section for host-level detail; investigate connectivity or backlog causes."))
+                result.findings.append(Finding("warning", f"Agent sync is {pct:.0f}% (rounded; {label}), below the {SYNC_WARN_THRESHOLD:.0f}% target.", "See the Fleet Health section for host-level detail; investigate connectivity or backlog causes."))
             else:
-                result.findings.append(Finding("ok", f"Agent sync ({label}) is {pct:.0f}%."))
+                result.findings.append(Finding("ok", f"Agent sync is {pct:.0f}% (rounded; {label})."))
         result.tables["sync_percent"] = [list(sync_df.columns)] + sync_df.astype(object).where(pd.notna(sync_df), "").values.tolist()
 
     if load_df is not None:
