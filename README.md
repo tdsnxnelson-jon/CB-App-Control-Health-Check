@@ -47,9 +47,15 @@ just needs to contain a recognizable keyword (matching is fuzzy, see
 | Console export: Custom rules | CSV | "custom" |
 | Console export: Computers | CSV | "computers" |
 | `ApprovalEventsForRulename.sql` | CSV | "approval events" |
-| `BlockAnalysis v6.1.sql` | CSV | "block analysis" |
+| `BlockAnalysis v6.2.sql` | CSV | "block analysis" |
 | `UnapprovedFileAnalysis+ v6.1.sql` | CSV | "unapproved file" |
 | `DatabaseErrorAnalysis.sql` | CSV | "database error" |
+
+`BlockAnalysis v6.2 fast.sql` is an alternative for servers where v6.2 runs
+too long. Same columns and same block counts, but it drops the discovery-event
+lookup, so `Subtype`, `DiscoveryTimeStamp`, `DiscoveredBy`, `ProcessShort` and
+`ProcessFull` come back empty and `RuleName` never reports
+"Remote Writing Local".
 
 Four scripts return **many** result grids in one execution
 (`CbP_Analysis_Script.sql`, `DailyPrune_Debug_Scope.sql`,

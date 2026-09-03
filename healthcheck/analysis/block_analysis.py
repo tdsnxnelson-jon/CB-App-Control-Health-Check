@@ -1,11 +1,17 @@
 """
-Block Analysis - based on "BlockAnalysis v6.1.sql".
+Block Analysis - based on "BlockAnalysis v6.2.sql".
 
-Execution blocks tied back to the "new unapproved file" event, classified
+Enforcement events (execution/write blocks, prompts, terminations) classified
 by likely cause (logon script, remote execution, approved-publisher gap,
 truly unapproved, etc). Useful for spotting noisy hosts/paths and whether
 blocks are mostly expected (unapproved software) vs. process issues
 (remote/logon-script patterns that may need policy tuning).
+
+v6.2 widens the subtype set (v6.1 only returned two "Execution prompt"
+subtypes, so High-enforcement silent blocks were missing entirely) and adds
+BlockOutcome / BlockCategory columns. Rows whose outcome is "Allowed" are
+prompts the user let through - they are reported separately, not counted as
+blocks.
 """
 import pandas as pd
 
@@ -28,6 +34,21 @@ def _categorize(rule_name: str) -> str:
     return "Other"
 
 
+def _outcomes(df: pd.DataFrame) -> pd.Series:
+    """BlockOutcome from v6.2, or derived from BlockSubtype for older exports."""
+    if "BlockOutcome" in df.columns:
+        return df["BlockOutcome"].fillna("Blocked").astype(str)
+    subtype = df.get("BlockSubtype", pd.Series(index=df.index, dtype=object)).fillna("").astype(str)
+    lowered = subtype.str.lower()
+    return pd.Series(
+        [
+            "Allowed" if "allow" in s else ("Blocked (prompt)" if "prompt" in s else "Blocked")
+            for s in lowered
+        ],
+        index=df.index,
+    )
+
+
 def analyze(df: pd.DataFrame) -> AnalysisResult:
     result = AnalysisResult(title="Block Analysis")
     if df is None or df.empty:
@@ -35,16 +56,46 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
         return result
 
     df = df.copy()
-    total = len(df)
-    category = df.get("RuleName", pd.Series(dtype=object)).map(_categorize)
-    by_category = category.value_counts()
+    outcome = _outcomes(df)
+    allowed_count = int((outcome == "Allowed").sum())
+    blocks = df.loc[outcome != "Allowed"]
+    total = len(blocks)
 
-    by_computer = df["ComputerName"].value_counts() if "ComputerName" in df.columns else pd.Series(dtype=int)
-    by_path = df["FilePath"].value_counts() if "FilePath" in df.columns else pd.Series(dtype=int)
-    timestamps = pd.to_datetime(df.get("TimeStamp"), errors="coerce")
-    by_day = df.loc[timestamps.notna()].groupby(timestamps.dt.date).size().sort_index()
+    if not total:
+        result.error = (
+            f"No enforcement blocks in the export ({allowed_count:,} allowed prompt(s) only)."
+        )
+        return result
+
+    category = blocks.get("RuleName", pd.Series(dtype=object)).map(_categorize)
+    by_category = category.value_counts()
+    by_subtype = (
+        df["BlockSubtype"].fillna("(unknown)").value_counts()
+        if "BlockSubtype" in df.columns
+        else pd.Series(dtype=int)
+    )
+
+    by_computer = blocks["ComputerName"].value_counts() if "ComputerName" in blocks.columns else pd.Series(dtype=int)
+    by_path = blocks["FilePath"].value_counts() if "FilePath" in blocks.columns else pd.Series(dtype=int)
+    timestamps = pd.to_datetime(blocks.get("TimeStamp"), errors="coerce")
+    by_day = blocks.loc[timestamps.notna()].groupby(timestamps.dt.date).size().sort_index()
 
     result.findings.append(Finding("info", f"{total:,} block event(s) analyzed."))
+
+    if allowed_count:
+        result.findings.append(Finding(
+            "caution",
+            f"{allowed_count:,} additional execution prompt(s) were allowed by the end user - these are not counted as blocks.",
+            "Users overriding prompts defeats enforcement; review whether these policies should move to High enforcement or the files should be approved by rule.",
+        ))
+
+    if "BlockCategory" in blocks.columns:
+        write_blocks = int((blocks["BlockCategory"] == "Write").sum())
+        if write_blocks:
+            result.findings.append(Finding(
+                "info",
+                f"{write_blocks:,} of the blocks are write blocks (rest are execution/termination).",
+            ))
 
     remote_count = sum(by_category.get(c, 0) for c in REMOTE_CATEGORIES)
     if remote_count:
@@ -62,6 +113,8 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
             result.findings.append(Finding("warning", f"'{top_host}' accounts for {top_host_count / total:.0%} of all blocks - investigate this host individually.", "Investigate this host individually for misconfiguration, unusual software, or a misapplied policy."))
 
     result.tables["by_category"] = [["Category", "Count"]] + [[c, int(v)] for c, v in by_category.items()]
+    if len(by_subtype):
+        result.tables["by_subtype"] = [["Event Subtype", "Count"]] + [[s, int(v)] for s, v in by_subtype.items()]
     result.tables["top_computers"] = [["Computer", "Blocks"]] + [[c, int(v)] for c, v in by_computer.head(TOP_N).items()]
     result.tables["top_paths"] = [["File Path", "Blocks"]] + [[p, int(v)] for p, v in by_path.head(TOP_N).items()]
 
@@ -118,6 +171,10 @@ def build_slides(prs, result: AnalysisResult) -> None:
     if "top_computers" in result.tables:
         slide = ph.add_content_slide(prs, f"Top {TOP_N} Computers by Block Count")
         ph.add_table(slide, result.tables["top_computers"], font_size=10, center=True)
+
+    if "by_subtype" in result.tables:
+        slide = ph.add_content_slide(prs, "Enforcement Events by Subtype")
+        ph.add_table(slide, result.tables["by_subtype"], font_size=10, center=True)
 
     if "top_paths" in result.tables:
         slide = ph.add_content_slide(prs, f"Top {TOP_N} Blocked File Paths")

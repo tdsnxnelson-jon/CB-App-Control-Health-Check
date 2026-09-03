@@ -72,7 +72,7 @@ SCRIPTS = {
         ],
     },
     "block_analysis": {
-        "sql_file": "BlockAnalysis v6.1.sql",
+        "sql_file": "BlockAnalysis v6.2.sql",
         "kind": CSV,
         "filename_match": ["blockanalysis", "block analysis"],
         "required_columns": [
