@@ -110,7 +110,15 @@ def main():
             sys.exit(1)
     elapsed = time.monotonic() - start_time
     logging.info(f"Report written to: {out}")
-    logging.info(f"Total run time: {elapsed:.1f} seconds")
+    logging.info(f"Total run time: {_format_elapsed(elapsed)}")
+
+
+def _format_elapsed(elapsed: float) -> str:
+    if elapsed >= 60:
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        return f"{minutes:02d}:{seconds:02d}"
+    return f"{elapsed:.1f} seconds"
 
 
 def _safe_filename_part(value: str) -> str:

@@ -301,7 +301,10 @@ def _add_remediations(result: AnalysisResult, blocks: pd.DataFrame, total: int) 
             cumulative.append(round(running / total * 100, 1))
         result.charts["remediation_coverage"] = (
             "line",
-            [str(i) for i in range(1, len(top) + 1)],
+            [
+                f"{i}. {c['action']}: {c['target']}"
+                for i, c in enumerate(top, start=1)
+            ],
             {"% of blocks addressed": cumulative},
         )
 
@@ -350,8 +353,8 @@ def build_slides(prs, result: AnalysisResult) -> None:
     if "remediation_coverage" in result.charts:
         _, categories, series = result.charts["remediation_coverage"]
         slide = ph.add_content_slide(prs, "Cumulative Block Reduction")
-        ph.add_line_chart(slide, "% of blocks addressed after each action", categories, series)
-        ph.add_footnote(slide, "X axis: number of recommended actions applied, in the order listed on the previous slide.")
+        ph.add_line_chart(slide, "Cumulative % of blocks addressed", categories, series)
+        ph.add_footnote(slide, "X axis: cumulative recommended approval actions applied; each label shows the action and target in coverage order.")
 
     if "daily_blocks" in result.charts:
         _, categories, series = result.charts["daily_blocks"]

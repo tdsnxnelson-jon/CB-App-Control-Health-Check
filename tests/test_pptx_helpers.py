@@ -17,6 +17,15 @@ def test_sanitize_chart_categories_replaces_non_finite():
     assert ph._sanitize_chart_categories(categories) == ["2024-01-01", "", "", "2024-01-03"]
 
 
+def test_wrap_to_width_preserves_full_operational_value():
+    path = r"c:\program files\vendor\product\version\bin\important.exe"
+
+    wrapped = ph._wrap_to_width(path, size_pt=10, width_in=1.5)
+
+    assert wrapped.replace("\n", "") == path
+    assert "..." not in wrapped
+
+
 def test_categorize_keeps_logon_script_variants():
     assert block_analysis._categorize("Logon Script") == "Logon Script"
     assert block_analysis._categorize(" logon script ") == "Logon Script"
@@ -35,3 +44,11 @@ def test_resolve_output_path_for_directory_target():
 
     expected = os.path.join(os.path.normpath(directory), "Epic Hosting_carbonblack11.ss.us.epichosted.com_AppControl_HealthCheck.pptx")
     assert path == expected
+
+
+def test_format_elapsed():
+    assert main._format_elapsed(12.34) == "12.3 seconds"
+    assert main._format_elapsed(59.9) == "59.9 seconds"
+    assert main._format_elapsed(60.0) == "01:00"
+    assert main._format_elapsed(203.0) == "03:23"
+    assert main._format_elapsed(3665.0) == "61:05"

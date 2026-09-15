@@ -8,6 +8,7 @@ python-pptx ends up using, and gives predictable, consistent spacing.
 """
 from typing import Iterable, List, Sequence, Tuple
 import math
+import textwrap
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -377,15 +378,33 @@ def _text_width_estimate(text: str, size_pt: float) -> float:
     return len(str(text)) * size_pt * 0.0092  # rough inches-per-char at given point size
 
 
-def _truncate_to_width(text, size_pt: float, width_in: float) -> str:
-    """Prevents word-wrap from silently growing a table row taller than
-    planned - the actual cause of tables overflowing the slide - by
-    hard-truncating cell text that wouldn't fit its column on one line."""
+def _wrap_to_width(text, size_pt: float, width_in: float) -> str:
+    """Wrap cell text without dropping any part of an operational value."""
     text = "" if text is None else str(text)
     max_chars = max(4, int(width_in / (size_pt * 0.0092)))
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 1].rstrip() + "\u2026"
+    paragraphs = text.splitlines() or [""]
+    return "\n".join(
+        textwrap.fill(
+            paragraph,
+            width=max_chars,
+            break_long_words=True,
+            break_on_hyphens=False,
+            replace_whitespace=False,
+        ) or ""
+        for paragraph in paragraphs
+    )
+
+
+def _wrapped_row_heights(rows, widths, size_pt: float) -> List[float]:
+    line_height = max(0.16, size_pt * 0.016)
+    heights = []
+    for row in rows:
+        line_count = max(
+            (_wrap_to_width(value, size_pt, widths[column]).count("\n") + 1)
+            for column, value in enumerate(row)
+        )
+        heights.append(max(0.25, line_count * line_height + 0.08))
+    return heights
 
 
 ROWS_PER_PAGE_BY_FONT = {14: 13, 12: 15, 11: 17, 10: 19, 9: 21, 8: 23, 7: 25}
@@ -405,7 +424,7 @@ def _auto_col_widths(rows: List[Sequence], total_width: float, font_size: int) -
 
     # Let compact tables stay compact instead of stretching every column to
     # the full content area. If the natural width is too wide, scale it down
-    # to the available space and rely on _truncate_to_width to avoid wrapping.
+    # to the available space and let long values wrap within their columns.
     cap = total_width * (0.55 if n_cols > 2 else 0.85)
     widths = [min(w, cap) for w in widths]
     total = sum(widths)
@@ -446,14 +465,16 @@ def add_table(
         rows = kept
 
     n_rows = len(rows)
-    min_row_h = 0.28
     size = font_size
-    while n_rows * min_row_h > height and size > 7:
+    while n_rows * 0.25 > height and size > 7:
         size -= 1
-        min_row_h = max(0.22, min_row_h - 0.01)
-    table_height = min(height, n_rows * max(min_row_h, 0.22))
 
     widths = _fit_col_widths(col_widths, width) if col_widths else _auto_col_widths(rows, width, size)
+    row_heights = _wrapped_row_heights(rows, widths, size)
+    while sum(row_heights) > height and size > 7:
+        size -= 1
+        row_heights = _wrapped_row_heights(rows, widths, size)
+    table_height = min(height, sum(row_heights))
     table_width = min(width, sum(widths))
     if center:
         left += (width - table_width) / 2
@@ -465,9 +486,11 @@ def add_table(
         table.columns[i].width = Inches(w)
 
     for r, row in enumerate(rows):
+        table.rows[r].height = Inches(row_heights[r])
         for c, val in enumerate(row):
             cell = table.cell(r, c)
-            cell.text = _truncate_to_width(val, size, widths[c])
+            cell.text = _wrap_to_width(val, size, widths[c])
+            cell.text_frame.word_wrap = True
             cell.margin_top = Pt(2)
             cell.margin_bottom = Pt(2)
             cell.margin_left = Pt(4)
