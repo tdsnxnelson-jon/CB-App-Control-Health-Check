@@ -11,6 +11,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 
 from colorama import Fore, Style, init as colorama_init
 
@@ -43,7 +44,30 @@ def _setup_logging(verbose: bool):
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=[handler])
 
 
+def _resolve_output_path(output_arg: str | None, customer: str, appcserver: str | None) -> str:
+    output_name = f"{customer}_AppControl_HealthCheck.pptx"
+    if appcserver:
+        server_name = _safe_filename_part(appcserver)
+        output_name = f"{customer}_{server_name}_AppControl_HealthCheck.pptx"
+
+    if not output_arg:
+        return os.path.join(os.getcwd(), output_name)
+
+    candidate = output_arg.strip().strip('"')
+    looks_like_dir = candidate.endswith(("\\", "/")) or os.path.isdir(candidate)
+    if looks_like_dir:
+        dir_path = os.path.normpath(candidate.rstrip("\\/"))
+        return os.path.join(dir_path, output_name)
+
+    normalized = os.path.normpath(candidate)
+    if os.path.splitext(normalized)[1].lower() != ".pptx":
+        return os.path.join(os.path.dirname(normalized) or ".", os.path.basename(normalized))
+    return normalized
+
+
 def main():
+    start_time = time.monotonic()
+
     parser = argparse.ArgumentParser(description="Generate a Carbon Black App Control health check PPTX from exported SQL script results.")
     parser.add_argument("--input", required=True, help="Folder containing exported CSV/XLSX results.")
     parser.add_argument("--customer", required=True, help="Customer name, used on the title slide and output filename.")
@@ -53,12 +77,7 @@ def main():
     args = parser.parse_args()
 
     _setup_logging(args.verbose)
-
-    output_name = f"{args.customer}_AppControl_HealthCheck.pptx"
-    if args.appcserver:
-        server_name = _safe_filename_part(args.appcserver)
-        output_name = f"{args.customer}_{server_name}_AppControl_HealthCheck.pptx"
-    output_path = args.output or os.path.join(os.getcwd(), output_name)
+    output_path = _resolve_output_path(args.output, args.customer, args.appcserver)
 
     try:
         results = ingest.load_all(args.input)
@@ -89,7 +108,9 @@ def main():
                 continue
             logging.error("Exiting - report was not written.")
             sys.exit(1)
+    elapsed = time.monotonic() - start_time
     logging.info(f"Report written to: {out}")
+    logging.info(f"Total run time: {elapsed:.1f} seconds")
 
 
 def _safe_filename_part(value: str) -> str:

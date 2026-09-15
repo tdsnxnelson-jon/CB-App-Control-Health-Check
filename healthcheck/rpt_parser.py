@@ -24,6 +24,9 @@ import pandas as pd
 
 _NOISE_PATTERNS = [
     re.compile(r"^\s*Warning:"),
+    re.compile(r"^\s*Msg\s+\d+,\s+Level\s+\d+,\s+State\s+\d+", re.IGNORECASE),
+    re.compile(r"^\s*Arithmetic overflow error", re.IGNORECASE),
+    re.compile(r"^\s*Divide by zero error", re.IGNORECASE),
     re.compile(r"^\s*DBCC execution completed"),
     re.compile(r"^\s*SQL Server Execution Times:"),
     re.compile(r"^\s*CPU time\s*="),

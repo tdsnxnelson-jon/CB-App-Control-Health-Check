@@ -576,12 +576,25 @@ def _sanitize_chart_categories(categories: Iterable[str]) -> List[str]:
     return cleaned
 
 
+def _should_use_pie_chart(categories: Iterable[str], values: Iterable[float], min_pct: float = 0.02) -> bool:
+    cats = list(categories)
+    vals = list(values)
+    if len(cats) > 6 or not vals:
+        return False
+    total = sum(float(v) for v in vals)
+    if total <= 0:
+        return False
+    return all((float(v) / total) >= min_pct for v in vals)
+
+
 def add_pie_chart(slide, title: str, categories: Iterable[str], values: Iterable[float], left=1.5, top=CONTENT_TOP, width=CONTENT_W - 3.0, height=CONTENT_H, show_legend=True, colors=None):
     categories, values = _sanitize_chart_categories(categories), _sanitize_chart_values(values)
 
     # too many slices makes pie labels unreadable - a horizontal bar reads
-    # far better once there are more than ~6 categories.
-    if len(categories) > 6:
+    # far better once there are more than ~6 categories, and tiny slices (<1%)
+    # are effectively invisible in a pie, which causes the legend to disagree
+    # with the actual rendered chart.
+    if not _should_use_pie_chart(categories, values):
         return add_bar_chart(slide, title, categories, {"Count": values}, left=MARGIN, top=top, width=width + 3.0, height=height, horizontal=True)
 
     chart_data = CategoryChartData()

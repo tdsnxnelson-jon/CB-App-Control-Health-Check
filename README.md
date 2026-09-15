@@ -88,6 +88,8 @@ included in the automated report - that's meant for manual review during
 the health check, not slide content. If a section can't be found in the
 `.rpt` (e.g. missing `VIEW SERVER STATE` permission on the SQL login), the
 tool logs a warning and skips just that section rather than failing.
+Note: Always use `CbP_Analysis_Script SAFE v2.sql` for large or high-throughput
+environments to avoid SQL arithmetic overflow errors during data collection.
 
 ## What each section of the report covers
 
@@ -110,7 +112,8 @@ tool logs a warning and skips just that section rather than failing.
 - **Agent Database Errors** - hosts with repeated agent DB errors.
 - **Database Bloat** - orphaned pathname/filename row %, table space.
 - **Server Health** - agent sync %, average load/agent, queue backlogs,
-  daily throughput trend.
+  daily throughput trend, and automated detection of event storms or
+  retention truncation caused by `PurgeEventThreshold`.
 - **DB Maintenance** - whether DailyPruneTask/antibody purge retention is
   keeping up or backlogged.
 - **Executive Summary** - all critical/warning findings across every

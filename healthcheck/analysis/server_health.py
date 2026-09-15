@@ -57,8 +57,15 @@ def analyze(sheets: dict) -> AnalysisResult:
         avg_ev = _first_numeric(load_df, "Average No. of Events/host")
         if avg_fo is not None and not (500 <= avg_fo <= 1500):
             result.findings.append(Finding("caution", f"Average file operations/host is {avg_fo:.0f}/day, outside the typical 500-1500 range.", "Confirm this aligns with expected agent behavior for this environment; investigate recent software rollouts if unexpectedly high."))
-        if avg_ev is not None and not (50 <= avg_ev <= 150):
-            result.findings.append(Finding("caution", f"Average events/host is {avg_ev:.0f}/day, outside the typical 50-150 range.", "Review recent rule/policy changes if this is a new trend; a sustained high rate can indicate noisy rules."))
+        if avg_ev is not None:
+            if avg_ev >= 300:
+                result.findings.append(Finding(
+                    "warning",
+                    f"Average events/host is {avg_ev:,.0f}/day (critically elevated vs. 50-150 normal baseline) - indicates an active event storm.",
+                    "Address the event storm: 1) Identify top event generators/rules via RuleAnalysis and CbP_Analysis_Script. 2) Check PurgeEventThreshold / PurgeEventTarget in shepherd_configs. 3) Tune noisy rules or add publisher approvals to restore normal baseline (50-150 events/host/day)."
+                ))
+            elif not (50 <= avg_ev <= 150):
+                result.findings.append(Finding("caution", f"Average events/host is {avg_ev:.0f}/day, outside the typical 50-150 range.", "Review recent rule/policy changes if this is a new trend; a sustained high rate can indicate noisy rules."))
         result.tables["avg_load"] = [list(load_df.columns)] + load_df.astype(object).where(pd.notna(load_df), "").values.tolist()
 
     if queue_df is not None:
@@ -70,13 +77,40 @@ def analyze(sheets: dict) -> AnalysisResult:
     if daily_df is not None and "Date" in daily_df.columns:
         daily_df = daily_df.copy()
         daily_df["Date"] = pd.to_datetime(daily_df["Date"], errors="coerce")
-        daily_df = daily_df.sort_values("Date")
-        if "E_Total" in daily_df.columns:
+        daily_df = daily_df.dropna(subset=["Date"]).sort_values("Date")
+        if not daily_df.empty and "E_Total" in daily_df.columns:
             events = pd.to_numeric(daily_df["E_Total"].astype(str).str.replace(",", "", regex=False), errors="coerce")
             events = events.replace([float("inf"), float("-inf")], float("nan")).fillna(0)
-            if len(events.dropna()) >= 2 and events.iloc[:-1].mean():
-                if events.iloc[-1] > events.iloc[:-1].mean() * 1.5:
-                    result.findings.append(Finding("warning", "Event volume spiked on the most recent day analyzed - check for recent policy/software changes.", "Correlate with recent policy or software changes across the fleet."))
+            if len(events) == 1 and events.iloc[0] >= 500_000:
+                result.findings.append(Finding(
+                    "warning",
+                    f"Event storm / high volume: {int(events.iloc[0]):,} events recorded on {daily_df['Date'].dt.strftime('%Y-%m-%d').iloc[0]} (only 1 day of data available).",
+                    "Address the event storm: 1) Identify top event generators/rules via RuleAnalysis and CbP_Analysis_Script. 2) Check PurgeEventThreshold / PurgeEventTarget in shepherd_configs. 3) Tune noisy rules or add publisher approvals to restore normal baseline (50-150 events/host/day). Note: Run CbP_Analysis_Script SAFE v2.sql to avoid SQL arithmetic overflow errors during data collection."
+                ))
+            elif len(events) >= 2:
+                latest_events = events.iloc[-1]
+                prior_events = events.iloc[:-1]
+                prior_mean = prior_events.mean()
+                prior_max = prior_events.max()
+
+                if latest_events >= 500_000 and (prior_mean == 0 or (prior_max < 1_000 and prior_mean < 500)):
+                    result.findings.append(Finding(
+                        "warning",
+                        f"Event storm / retention truncation: daily volume reached {int(latest_events):,} on the latest day while prior days flatlined at zero.",
+                        "Address the event storm: 1) Identify top event generators/rules via RuleAnalysis and CbP_Analysis_Script. 2) Check PurgeEventThreshold / PurgeEventTarget in shepherd_configs. 3) Tune noisy rules or add publisher approvals to restore normal baseline (50-150 events/host/day)."
+                    ))
+                elif prior_mean > 0 and latest_events > prior_mean * 1.5:
+                    result.findings.append(Finding(
+                        "warning",
+                        f"Event volume spiked on the most recent day analyzed ({int(latest_events):,} vs. ~{prior_mean:,.0f}/day average).",
+                        "Address the event surge: correlate with recent policy or software changes across the fleet, and check for noisy custom rules or unapproved script storms."
+                    ))
+                elif events.max() > 1_000_000:
+                    result.findings.append(Finding(
+                        "warning",
+                        f"High daily event volume ({int(events.max()):,} events/day) exceeds typical thresholds.",
+                        "Address the event storm: review top event-producing rules, scripts, or updaters to reduce volume before database retention is impacted."
+                    ))
             result.charts["daily_events"] = ("line", daily_df["Date"].dt.strftime("%Y-%m-%d").tolist(), {"Events": events.tolist()})
         result.tables["daily_throughput"] = [list(daily_df.columns)] + daily_df.astype(object).where(pd.notna(daily_df), "").values.tolist()
 
@@ -110,6 +144,12 @@ def build_slides(prs, result: AnalysisResult) -> None:
         _, categories, series = result.charts["daily_events"]
         slide = ph.add_content_slide(prs, "Daily Event Volume")
         ph.add_line_chart(slide, "Events per Day", categories, series)
+        ev_list = series.get("Events", [])
+        if any(v >= 500_000 for v in ev_list):
+            if len(ev_list) == 1:
+                ph.add_footnote(slide, "Note: Only 1 day of daily throughput data available; run CbP_Analysis_Script SAFE v2.sql to capture the full 21-day trend without SQL arithmetic overflow.")
+            elif all(v == 0 for v in ev_list[:-1]) or all(v == 0 for v in ev_list[1:]):
+                ph.add_footnote(slide, "Note: Zero-event dates indicate older events were purged from dbo.events when event volume exceeded PurgeEventThreshold.")
 
     if "daily_throughput" in result.tables:
         ph.add_table_slides(prs, "Daily Throughput Detail", result.tables["daily_throughput"], font_size=8)
