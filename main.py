@@ -76,6 +76,8 @@ def main():
         logging.error("No valid input data found - nothing to report on.")
         sys.exit(1)
 
+    logging.info("Starting report generation...")
+
     while True:
         try:
             out = builder.build_report(results, args.customer, output_path, args.appcserver)

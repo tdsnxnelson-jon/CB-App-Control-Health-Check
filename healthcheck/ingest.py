@@ -35,7 +35,7 @@ class IngestResult:
         return self.data is not None
 
 
-def _find_file(input_dir: str, patterns: list, exts=CSV_EXTS + EXCEL_EXTS + RPT_EXTS) -> Optional[str]:
+def _find_files(input_dir: str, patterns: list, exts=CSV_EXTS + EXCEL_EXTS + RPT_EXTS) -> list[str]:
     candidates = []
     for fname in os.listdir(input_dir):
         lower = fname.lower()
@@ -44,10 +44,16 @@ def _find_file(input_dir: str, patterns: list, exts=CSV_EXTS + EXCEL_EXTS + RPT_
         if any(p.lower() in lower for p in patterns):
             candidates.append(fname)
     if not candidates:
+        return []
+    candidates.sort()
+    return [os.path.join(input_dir, candidate) for candidate in candidates]
+
+
+def _find_file(input_dir: str, patterns: list, exts=CSV_EXTS + EXCEL_EXTS + RPT_EXTS) -> Optional[str]:
+    paths = _find_files(input_dir, patterns, exts)
+    if not paths:
         return None
-    # prefer the most recently modified match if there are several
-    candidates.sort(key=lambda f: os.path.getmtime(os.path.join(input_dir, f)), reverse=True)
-    return os.path.join(input_dir, candidates[0])
+    return max(paths, key=os.path.getmtime)
 
 
 def _read_table(path: str) -> pd.DataFrame:
@@ -90,14 +96,29 @@ def _validate_columns(df: pd.DataFrame, required: list, warnings: list, label: s
 
 def load_csv_script(key: str, spec: dict, input_dir: str) -> IngestResult:
     warnings = []
-    path = _find_file(input_dir, spec["filename_match"], exts=tuple(spec.get("extensions", CSV_EXTS + EXCEL_EXTS + RPT_EXTS)))
-    if not path:
+    paths = _find_files(input_dir, spec["filename_match"], exts=tuple(spec.get("extensions", CSV_EXTS + EXCEL_EXTS + RPT_EXTS)))
+    if not paths:
         return IngestResult(key, None, [f"No file found matching {spec['filename_match']} in {input_dir}"])
+    if not spec.get("multi_file"):
+        paths = [max(paths, key=os.path.getmtime)]
+
+    frames = []
+    expected_columns = None
     try:
-        df = _read_table(path)
+        for path in paths:
+            frame = _read_table(path)
+            _validate_columns(frame, spec.get("required_columns", []), warnings, os.path.basename(path))
+            columns = list(frame.columns)
+            if expected_columns is None:
+                expected_columns = columns
+            elif columns != expected_columns:
+                return IngestResult(key, None, [f"Chunk schema mismatch in {path}; expected columns from {paths[0]}"])
+            frames.append(frame)
     except Exception as e:  # noqa: BLE001 - surface any parse failure to the caller
         return IngestResult(key, None, [f"Failed to read {path}: {e}"])
-    _validate_columns(df, spec.get("required_columns", []), warnings, os.path.basename(path))
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    if len(frames) > 1:
+        warnings.append(f"Loaded {len(frames)} chunks for {key} ({len(df):,} total rows)")
     return IngestResult(key, df, warnings)
 
 

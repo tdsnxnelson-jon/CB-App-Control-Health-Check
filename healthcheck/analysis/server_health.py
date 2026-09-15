@@ -73,10 +73,11 @@ def analyze(sheets: dict) -> AnalysisResult:
         daily_df = daily_df.sort_values("Date")
         if "E_Total" in daily_df.columns:
             events = pd.to_numeric(daily_df["E_Total"].astype(str).str.replace(",", "", regex=False), errors="coerce")
+            events = events.replace([float("inf"), float("-inf")], float("nan")).fillna(0)
             if len(events.dropna()) >= 2 and events.iloc[:-1].mean():
                 if events.iloc[-1] > events.iloc[:-1].mean() * 1.5:
                     result.findings.append(Finding("warning", "Event volume spiked on the most recent day analyzed - check for recent policy/software changes.", "Correlate with recent policy or software changes across the fleet."))
-            result.charts["daily_events"] = ("line", daily_df["Date"].dt.strftime("%Y-%m-%d").tolist(), {"Events": events.fillna(0).tolist()})
+            result.charts["daily_events"] = ("line", daily_df["Date"].dt.strftime("%Y-%m-%d").tolist(), {"Events": events.tolist()})
         result.tables["daily_throughput"] = [list(daily_df.columns)] + daily_df.astype(object).where(pd.notna(daily_df), "").values.tolist()
 
     if perf_df is not None and "AB_BackLog_M" in perf_df.columns:

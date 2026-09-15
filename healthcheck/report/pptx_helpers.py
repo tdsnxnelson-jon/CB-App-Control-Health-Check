@@ -540,8 +540,44 @@ def _rotate_category_labels(chart, degrees=-45):
     bodyPr.set("rot", str(int(degrees * 60000)))
 
 
+def _sanitize_chart_values(values: Iterable[float]) -> List[float]:
+    cleaned = []
+    for value in values:
+        if value is None:
+            cleaned.append(0.0)
+            continue
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            cleaned.append(0.0)
+            continue
+        if math.isnan(numeric) or math.isinf(numeric):
+            cleaned.append(0.0)
+        else:
+            cleaned.append(numeric)
+    return cleaned
+
+
+def _sanitize_chart_categories(categories: Iterable[str]) -> List[str]:
+    cleaned = []
+    for value in categories:
+        if value is None:
+            cleaned.append("")
+            continue
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            cleaned.append(str(value))
+            continue
+        if math.isnan(numeric) or math.isinf(numeric):
+            cleaned.append("")
+        else:
+            cleaned.append(str(value))
+    return cleaned
+
+
 def add_pie_chart(slide, title: str, categories: Iterable[str], values: Iterable[float], left=1.5, top=CONTENT_TOP, width=CONTENT_W - 3.0, height=CONTENT_H, show_legend=True, colors=None):
-    categories, values = list(categories), list(values)
+    categories, values = _sanitize_chart_categories(categories), _sanitize_chart_values(values)
 
     # too many slices makes pie labels unreadable - a horizontal bar reads
     # far better once there are more than ~6 categories.
@@ -579,11 +615,11 @@ def add_pie_chart(slide, title: str, categories: Iterable[str], values: Iterable
 
 
 def add_line_chart(slide, title: str, categories: Iterable[str], series: dict, left=MARGIN, top=CONTENT_TOP, width=CONTENT_W, height=CONTENT_H):
-    categories = list(categories)
+    categories = _sanitize_chart_categories(categories)
     chart_data = CategoryChartData()
     chart_data.categories = categories
     for name, values in series.items():
-        chart_data.add_series(name, list(values))
+        chart_data.add_series(name, _sanitize_chart_values(values))
     gframe = slide.shapes.add_chart(XL_CHART_TYPE.LINE_MARKERS, Inches(left), Inches(top), Inches(width), Inches(height), chart_data)
     chart = gframe.chart
     chart.has_legend = len(series) > 1
@@ -605,11 +641,11 @@ def add_line_chart(slide, title: str, categories: Iterable[str], series: dict, l
 
 
 def add_bar_chart(slide, title: str, categories: Iterable[str], series: dict, left=MARGIN, top=CONTENT_TOP, width=CONTENT_W, height=CONTENT_H, horizontal=False):
-    categories = list(categories)
+    categories = _sanitize_chart_categories(categories)
     chart_data = CategoryChartData()
     chart_data.categories = categories
     for name, values in series.items():
-        chart_data.add_series(name, list(values))
+        chart_data.add_series(name, _sanitize_chart_values(values))
     chart_type = XL_CHART_TYPE.BAR_CLUSTERED if horizontal else XL_CHART_TYPE.COLUMN_CLUSTERED
     gframe = slide.shapes.add_chart(chart_type, Inches(left), Inches(top), Inches(width), Inches(height), chart_data)
     chart = gframe.chart

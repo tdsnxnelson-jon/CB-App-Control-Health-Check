@@ -42,7 +42,7 @@ just needs to contain a recognizable keyword (matching is fuzzy, see
 
 | Script | Export as | Filename must contain |
 |---|---|---|
-| `Approval Metrics+ v4.2.sql` | CSV | "approval metric" |
+| `Approval Metrics+ v4.3 SAFE.sql` | CSV | "approval metric" |
 | `RuleAnalysis.sql` | CSV | "rule analysis" |
 | Console export: Custom rules | CSV | "custom" |
 | Console export: Computers | CSV | "computers" |
@@ -51,6 +51,11 @@ just needs to contain a recognizable keyword (matching is fuzzy, see
 | `UnapprovedFileAnalysis+ v6.1.sql` | CSV | "unapproved file" |
 | `DatabaseErrorAnalysis.sql` | CSV | "database error" |
 
+Unapproved File Analysis may be exported as multiple non-overlapping,
+time-bounded chunks. The app concatenates every matching CSV/TXT file; keep
+only chunks for the intended period in the input folder. See
+`PRODUCTION RUN GUIDANCE.md` beside the SQL scripts for the chunk procedure.
+
 `BlockAnalysis v6.2 fast.sql` is an alternative for servers where v6.2 runs
 too long. Same columns and same block counts, but it drops the discovery-event
 lookup, so `Subtype`, `DiscoveryTimeStamp`, `DiscoveredBy`, `ProcessShort` and
@@ -58,7 +63,7 @@ lookup, so `Subtype`, `DiscoveryTimeStamp`, `DiscoveredBy`, `ProcessShort` and
 "Remote Writing Local".
 
 Four scripts return **many** result grids in one execution
-(`CbP_Analysis_Script.sql`, `DailyPrune_Debug_Scope.sql`,
+(`CbP_Analysis_Script SAFE v2.sql`, `DailyPrune_Debug_Scope.sql`,
 `FilePath_Pruning_Scope_AllVersion.sql`, `PurgeAntibodiesPeriodDays scope.sql`).
 For these, no manual splitting is needed - just export the **raw SSMS
 text output** for the whole script run and drop that one file in:
@@ -72,7 +77,7 @@ text output** for the whole script run and drop that one file in:
 
 | Script | Filename must contain |
 |---|---|
-| `CbP_Analysis_Script.sql` | "cbp_analysis" |
+| `CbP_Analysis_Script SAFE v2.sql` | "cbp_analysis" |
 | `DailyPrune_Debug_Scope.sql` | "dailyprune" |
 | `FilePath_Pruning_Scope_AllVersion.sql` | "filepath_pruning" |
 | `PurgeAntibodiesPeriodDays scope.sql` | "purgeantibodiesperioddays" |

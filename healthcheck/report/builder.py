@@ -38,6 +38,7 @@ def build_report(results: dict, customer_name: str, output_path: str, appc_serve
             reason = "; ".join(ingest.warnings) if ingest and ingest.warnings else "no input file found"
             log.warning(f"Skipping '{key}': {reason}")
             return
+        log.info(f"Generating slide deck section: {key}...")
         analysis = module.analyze(ingest.data)
         if analysis.error:
             log.warning(f"'{key}': {analysis.error}")
@@ -57,6 +58,7 @@ def build_report(results: dict, customer_name: str, output_path: str, appc_serve
     _run("server_health", server_health)
 
     # DB maintenance combines two inputs into one section
+    log.info("Generating slide deck section: db_maintenance...")
     prune_ingest = results.get("db_maintenance")
     purge_ingest = results.get("purge_antibodies_scope")
     prune_results = []
@@ -187,6 +189,15 @@ def _executive_message(key: str, message: str) -> str:
             usual = _first_match(r"~([\d,]+)/day", text)
             return f"Approval activity spiked on {date}: {recent} vs. usual {usual}/day."
     elif key == "block_analysis":
+        if "recommended approval action" in text:
+            covered = _first_match(r"address ([\d,]+ of [\d,]+) blocks", text, "a large share of")
+            pct = _first_match(r"\((\d+%)\)", text, "")
+            lead = _first_match(r'largest is "([^"]+)"', text, "")
+            suffix = f" Largest single win: {lead}." if lead != "Several" and lead else ""
+            return f"A short list of approvals would remove {covered} blocks{f' ({pct})' if pct != 'Several' and pct else ''}.{suffix}"
+        if "must not be blanket-approved" in text:
+            count = _first_match(r"([\d,]+)\s+block cluster", text)
+            return f"{count} repeat-block clusters need manual triage before any approval."
         if "already-approved publisher/state" in text:
             count = _first_match(r"([\d,]+\s+\([^)]*\))", text)
             return f"{count} blocks involved software with an existing approval signal."

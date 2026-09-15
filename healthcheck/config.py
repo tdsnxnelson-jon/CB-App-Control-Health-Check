@@ -22,7 +22,7 @@ RPT_MULTI = "rpt_multi"
 
 SCRIPTS = {
     "fleet_health": {
-        "sql_file": "Approval Metrics+ v4.2.sql",
+        "sql_file": "Approval Metrics+ v4.3 SAFE.sql",
         "kind": CSV,
         "filename_match": ["approval metric"],
         "required_columns": [
@@ -85,6 +85,8 @@ SCRIPTS = {
         "sql_file": "UnapprovedFileAnalysis+ v6.1.sql",
         "kind": CSV,
         "filename_match": ["unapprovedfileanalysis", "unapproved file"],
+        "extensions": (".csv", ".txt"),
+        "multi_file": True,
         "required_columns": [
             "TimeStamp", "ComputerName", "Policy", "RuleName", "FilePath",
             "Publisher", "PublisherState", "FileHash", "CustomRuleName",
@@ -109,7 +111,7 @@ SCRIPTS = {
         },
     },
     "server_health": {
-        "sql_file": "CbP_Analysis_Script.sql",
+        "sql_file": "CbP_Analysis_Script SAFE v2.sql",
         "kind": RPT_MULTI,
         "filename_match": ["cbp_analysis", "server health", "cbp analysis"],
         "sections": {
