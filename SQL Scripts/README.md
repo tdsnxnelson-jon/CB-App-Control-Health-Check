@@ -31,6 +31,15 @@ Before exporting, make sure SSMS is configured to include column headers:
 3. Select **OK**, then open a new query window before running the script. If SSMS does not apply the change, restart SSMS.
 
 Use this procedure for scripts that return one result grid:
+| Script | Export format | Filename must contain | Notes |
+|---|---|---|---|
+| `Approval Metrics+ v4.3 SAFE.sql` | CSV | `approval metric` | Use the SAFE version when provided. |
+| `RuleAnalysis.sql` | CSV | `rule analysis` or `ruleanalysis` | One CSV export. |
+| `ApprovalEventsForRulename.sql` | CSV | `approval events` or `approvalevents` | One CSV export. |
+| `BlockAnalysis v6.2.sql` | CSV | `block analysis` or `blockanalysis` | Use v6.2 to include all enforcement events. |
+| `BlockAnalysis v6.2 fast.sql` | CSV | `block analysis` or `blockanalysis` | Optional alternative when v6.2 is too slow; it returns less discovery detail. |
+| `UnapprovedFileAnalysis+ v6.1.sql` | CSV | `unapproved file` or `unapprovedfileanalysis` | Multiple non-overlapping time chunks are supported. |
+| `DatabaseErrorAnalysis.sql` | CSV | `database error` or `databaseerroranalysis` | One CSV export. |
 
 1. Open the SQL script in SSMS.
 2. Connect to the correct App Control SQL Server database.
@@ -48,6 +57,12 @@ Do not use a headerless export: the importer cannot safely infer the complete sc
 ## Exporting a multi-result SQL script as RPT
 
 These scripts return multiple result sets in one execution. Export the complete SSMS text output as one raw `.rpt` file:
+| Script | Export format | Filename must contain | Notes |
+|---|---|---|---|
+| `FilePath_Pruning_Scope_AllVersion.sql` | RPT | `filepath pruning` or `filepath_pruning` | Raw SSMS Results to File output. |
+| `CbP_Analysis_Script SAFE v2.sql` | RPT | `cbp analysis` or `cbp_analysis` | Raw SSMS Results to File output. |
+| `DailyPrune_Debug_Scope.sql` | RPT | `daily prune` or `dailyprune` | Raw SSMS Results to File output. |
+| `PurgeAntibodiesPeriodDays scope.sql` | RPT | `purge antibodies` or `purgeantibodiesperioddays` | Raw SSMS Results to File output. |
 
 1. Open the SQL script in SSMS.
 2. Before running it, select **Query > Results To > Results to File**. The shortcut is `Ctrl+Shift+F`.
@@ -57,22 +72,6 @@ These scripts return multiple result sets in one execution. Export the complete 
 6. Save the single `.rpt` file in the health-check input folder.
 
 Do not manually split the result sets. Do not copy the results into Excel. The importer detects the individual result tables inside the raw SSMS output by their column names. Diagnostic messages such as statistics, DBCC output, and schema checks may also be present; that is expected.
-
-## SQL scripts and required formats
-
-| Script | Export format | Filename must contain | Notes |
-|---|---|---|---|
-| `Approval Metrics+ v4.3 SAFE.sql` | CSV | `approval metric` | Use the SAFE version when provided. |
-| `RuleAnalysis.sql` | CSV | `rule analysis` or `ruleanalysis` | One CSV export. |
-| `ApprovalEventsForRulename.sql` | CSV | `approval events` or `approvalevents` | One CSV export. |
-| `BlockAnalysis v6.2.sql` | CSV | `block analysis` or `blockanalysis` | Use v6.2 to include all enforcement events. |
-| `BlockAnalysis v6.2 fast.sql` | CSV | `block analysis` or `blockanalysis` | Optional alternative when v6.2 is too slow; it returns less discovery detail. |
-| `UnapprovedFileAnalysis+ v6.1.sql` | CSV | `unapproved file` or `unapprovedfileanalysis` | Multiple non-overlapping time chunks are supported. |
-| `DatabaseErrorAnalysis.sql` | CSV | `database error` or `databaseerroranalysis` | One CSV export. |
-| `FilePath_Pruning_Scope_AllVersion.sql` | RPT | `filepath pruning` or `filepath_pruning` | Raw SSMS Results to File output. |
-| `CbP_Analysis_Script SAFE v2.sql` | RPT | `cbp analysis` or `cbp_analysis` | Raw SSMS Results to File output. |
-| `DailyPrune_Debug_Scope.sql` | RPT | `daily prune` or `dailyprune` | Raw SSMS Results to File output. |
-| `PurgeAntibodiesPeriodDays scope.sql` | RPT | `purge antibodies` or `purgeantibodiesperioddays` | Raw SSMS Results to File output. |
 
 ## Exporting data from the App Control UI
 
