@@ -5,13 +5,16 @@ SET DEADLOCK_PRIORITY LOW;
 SET LOCK_TIMEOUT 5000;
 IF OBJECT_ID('tempdb..#Variables') IS NOT NULL DROP TABLE #Variables
 Create table #Variables (startDate datetime, endDate datetime, rowsToRetrieve int)
-insert into #Variables values(
-DATEADD(hour, -1, GETDATE()),	--<== StartDate (use non-overlapping chunks, comment out to use fixed start date) 
-GETDATE(),				--<== EndDate (use non-overlapping chunks, comment out to use fixed end date) 
---'2026-09-13T01:00:00', -- StartDate, included (uncomment to use fixed start date)
---'2026-09-13T02:00:00', -- EndDate, excluded (uncomment to use fixed end date)
-300000					--<== Maximum rows per chunk; the script fails rather than truncates
-)
+DECLARE @startDate datetime = DATEADD(hour, -1, GETDATE());
+DECLARE @endDate datetime = GETDATE();
+DECLARE @rowsToRetrieve int = 300000; -- Maximum rows per chunk; the script fails rather than truncates
+
+-- To use a fixed, non-overlapping chunk, uncomment and edit both lines below.
+--SET @startDate = '2026-09-13T01:00:00'; -- included
+--SET @endDate = '2026-09-13T02:00:00'; -- excluded
+
+insert into #Variables (startDate, endDate, rowsToRetrieve)
+values (@startDate, @endDate, @rowsToRetrieve)
 
 go
 DECLARE @majorVersion int = TRY_CONVERT(int, PARSENAME(CONVERT(varchar(128), SERVERPROPERTY('ProductVersion')), 4));
@@ -70,8 +73,16 @@ declare @thisStartdate datetime,@thisEnddate datetime,@thisRowsToRetrieve int,@t
 		@PathPattern nvarchar(max) = '',@PathPatternXP nvarchar(max) = '',@ProcessPattern nvarchar(max) = '',@ProcessPatternXP nvarchar(max) = '',@ruleOrder bigint = 1,
 		@policyOrder bigint = 10000,@inputUG nvarchar(max) = '',@outputUG nvarchar(max) = '',@indexUG bigint;
 select @thisStartdate = #Variables.startdate, @thisEnddate = #Variables.endDate, @thisRowsToRetrieve = #Variables.rowsToRetrieve from #Variables;
-if @thisStartdate >= @thisEnddate THROW 50001, 'StartDate must be earlier than EndDate.', 1;
-if @thisRowsToRetrieve < 1 THROW 50002, 'RowsToRetrieve must be greater than zero.', 1;
+if @thisStartdate >= @thisEnddate
+begin
+	RAISERROR('StartDate must be earlier than EndDate.', 16, 1);
+	RETURN;
+end;
+if @thisRowsToRetrieve < 1
+begin
+	RAISERROR('RowsToRetrieve must be greater than zero.', 16, 1);
+	RETURN;
+end;
 declare	thisRuleCursor cursor for
 		select distinct mr.name as 'Name',
 		CASE ISNULL(mr.enabled, 0) WHEN 1 THEN 'Enabled' ELSE 'Disabled' END AS 'Status',
@@ -184,7 +195,8 @@ OPTION (MAXDOP 1);
 
 IF (SELECT COUNT_BIG(*) FROM #TargetEvents) > @thisRowsToRetrieve
 BEGIN
-		THROW 50003, 'The selected window exceeds RowsToRetrieve. Use a smaller, non-overlapping StartDate/EndDate chunk; no partial results were returned.', 1;
+		RAISERROR('The selected window exceeds RowsToRetrieve. Use a smaller, non-overlapping StartDate/EndDate chunk; no partial results were returned.', 16, 1);
+		RETURN;
 END;
 
 SELECT

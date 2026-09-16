@@ -20,9 +20,15 @@ The general workflow is:
 
 `UnapprovedFileAnalysis+ v6.1.sql` is intended to run in time-bounded chunks. Use non-overlapping UTC/server-time ranges and keep every successful chunk for the intended period in the input folder.
 
-For high-volume environments, the requested period should be exported as multiple smaller time chunks. If an hourly chunk still exceeds the limit, that interval should be divided further rather than increasing the row cap. This can be accomplished by editing the script and commenting out/in the lines indicated between lines 9-12, and following the date/time pattern provided. 
+For high-volume environments, the requested period should be exported as multiple smaller time chunks. If an hourly chunk still exceeds the limit, that interval should be divided further rather than increasing the row cap. For a fixed chunk, edit `UnapprovedFileAnalysis+ v6.1.sql` by uncommenting the two `SET @startDate` and `SET @endDate` lines near the top of the script, then set both values to the desired non-overlapping window.
 
 ## Exporting a single-result SQL script as CSV
+
+Before exporting, make sure SSMS is configured to include column headers:
+
+1. Open **Tools > Options > Query Results > SQL Server > Results to Grid**.
+2. Enable **Include column headers when copying or saving the results**.
+3. Select **OK**, then open a new query window before running the script. If SSMS does not apply the change, restart SSMS.
 
 Use this procedure for scripts that return one result grid:
 
@@ -35,8 +41,9 @@ Use this procedure for scripts that return one result grid:
 7. Save the file as **CSV UTF-8 (`*.csv`)** when available.
 8. Use a descriptive filename containing the required keyword in the table below.
 9. Save the file in the health-check input folder.
+10. Open the CSV in a text editor and confirm the first row contains column names such as `Computer ID`, `Event`, or `TimeStamp`, as appropriate for the script.
 
-Do not save these exports as Excel workbooks. The health-check importer expects CSV/TXT data for these scripts.
+Do not use a headerless export: the importer cannot safely infer the complete schema, so the query must be re-exported after enabling column headers. Do not save these exports as Excel workbooks. The health-check importer expects CSV/TXT data for these scripts.
 
 ## Exporting a multi-result SQL script as RPT
 
