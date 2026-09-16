@@ -1,0 +1,3 @@
+[submodule "SQL Scripts"]
+	path = SQL Scripts
+	url = https://github.com/tdsnxnelson-jon/CB-App-Control-Health-Check-SQL-Scripts.git
