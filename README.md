@@ -20,6 +20,32 @@ analyzed PPTX report instead of manual review + slide building.
 pip install -r requirements.txt
 ```
 
+## SQL scripts repository
+
+The `SQL Scripts` folder is a Git submodule maintained in its own repository.
+Clone this repository with its submodule included:
+
+```powershell
+git clone --recurse-submodules <parent-repository-url>
+```
+
+For an existing clone, initialize or refresh the submodule with:
+
+```powershell
+git submodule update --init --recursive
+```
+
+When updating SQL scripts, commit and push the change from inside `SQL Scripts`,
+then commit the updated submodule reference from the parent repository:
+
+```powershell
+git -C "SQL Scripts" add .
+git -C "SQL Scripts" commit -m "Update SQL scripts"
+git -C "SQL Scripts" push
+git add "SQL Scripts"
+git commit -m "Update SQL scripts submodule"
+```
+
 ## Run
 
 ```powershell
