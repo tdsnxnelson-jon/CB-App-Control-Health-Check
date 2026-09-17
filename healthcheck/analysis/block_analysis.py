@@ -347,6 +347,7 @@ def build_slides(prs, result: AnalysisResult) -> None:
             font_size=10,
             center=True,
             col_widths=[2.6, 6.4, 1.1, 1.3, 1.0],
+            max_cell_lines=8,
         )
         ph.add_footnote(slide, "Each block is attributed to a single best-fit action, so the counts do not overlap.")
 
@@ -402,4 +403,4 @@ def build_slides(prs, result: AnalysisResult) -> None:
 
     if "top_paths" in result.tables:
         slide = ph.add_content_slide(prs, f"Top {TOP_N} Blocked File Paths")
-        ph.add_table(slide, result.tables["top_paths"], font_size=9, center=True)
+        ph.add_table(slide, result.tables["top_paths"], font_size=9, center=True, max_cell_lines=8)

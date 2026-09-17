@@ -395,12 +395,28 @@ def _wrap_to_width(text, size_pt: float, width_in: float) -> str:
     )
 
 
-def _wrapped_row_heights(rows, widths, size_pt: float) -> List[float]:
+MAX_TABLE_CELL_LINES = 3
+
+
+def _fit_cell_text(text, size_pt: float, width_in: float, max_lines: int = MAX_TABLE_CELL_LINES) -> str:
+    wrapped = _wrap_to_width(text, size_pt, width_in)
+    lines = wrapped.splitlines() or [""]
+    if len(lines) <= max_lines:
+        return wrapped
+    if max_lines == 1:
+        return lines[0][:max(1, len(lines[0]) - 3)] + "..."
+    content_lines = max_lines - 1
+    head_lines = content_lines // 2
+    tail_lines = content_lines - head_lines
+    return "\n".join(lines[:head_lines] + ["..."] + lines[-tail_lines:])
+
+
+def _wrapped_row_heights(rows, widths, size_pt: float, max_cell_lines: int = MAX_TABLE_CELL_LINES) -> List[float]:
     line_height = max(0.16, size_pt * 0.016)
     heights = []
     for row in rows:
         line_count = max(
-            (_wrap_to_width(value, size_pt, widths[column]).count("\n") + 1)
+            min(max_cell_lines, _wrap_to_width(value, size_pt, widths[column]).count("\n") + 1)
             for column, value in enumerate(row)
         )
         heights.append(max(0.25, line_count * line_height + 0.08))
@@ -412,6 +428,16 @@ ROWS_PER_PAGE_BY_FONT = {14: 13, 12: 15, 11: 17, 10: 19, 9: 21, 8: 23, 7: 25}
 
 def _rows_per_page(font_size: int) -> int:
     return ROWS_PER_PAGE_BY_FONT.get(font_size, 15)
+
+
+def _table_layout(rows, width, height, font_size, col_widths=None, max_cell_lines=MAX_TABLE_CELL_LINES):
+    size = font_size
+    widths = _fit_col_widths(col_widths, width) if col_widths else _auto_col_widths(rows, width, size)
+    row_heights = _wrapped_row_heights(rows, widths, size, max_cell_lines)
+    while sum(row_heights) > height and size > 7:
+        size -= 1
+        row_heights = _wrapped_row_heights(rows, widths, size, max_cell_lines)
+    return size, widths, row_heights
 
 
 def _auto_col_widths(rows: List[Sequence], total_width: float, font_size: int) -> List[float]:
@@ -455,6 +481,7 @@ def add_table(
     header=True,
     max_rows=30,
     center=False,
+    max_cell_lines=MAX_TABLE_CELL_LINES,
 ):
     """rows[0] is treated as the header row when header=True. Column widths
     auto-size to content (falls back to even split) and font size/row
@@ -465,16 +492,11 @@ def add_table(
         rows = kept
 
     n_rows = len(rows)
-    size = font_size
-    while n_rows * 0.25 > height and size > 7:
-        size -= 1
-
-    widths = _fit_col_widths(col_widths, width) if col_widths else _auto_col_widths(rows, width, size)
-    row_heights = _wrapped_row_heights(rows, widths, size)
-    while sum(row_heights) > height and size > 7:
-        size -= 1
-        row_heights = _wrapped_row_heights(rows, widths, size)
-    table_height = min(height, sum(row_heights))
+    size, widths, row_heights = _table_layout(rows, width, height, font_size, col_widths, max_cell_lines)
+    if sum(row_heights) > height:
+        scale = height / sum(row_heights)
+        row_heights = [row_height * scale for row_height in row_heights]
+    table_height = sum(row_heights)
     table_width = min(width, sum(widths))
     if center:
         left += (width - table_width) / 2
@@ -489,7 +511,7 @@ def add_table(
         table.rows[r].height = Inches(row_heights[r])
         for c, val in enumerate(row):
             cell = table.cell(r, c)
-            cell.text = _wrap_to_width(val, size, widths[c])
+            cell.text = _fit_cell_text(val, size, widths[c], max_cell_lines)
             cell.text_frame.word_wrap = True
             cell.margin_top = Pt(2)
             cell.margin_bottom = Pt(2)
@@ -515,7 +537,7 @@ def add_table(
     return table
 
 
-def add_table_slides(prs, title: str, rows: List[Sequence], font_size=11, col_widths: Sequence[float] = None, header=True, max_total_rows=150):
+def add_table_slides(prs, title: str, rows: List[Sequence], font_size=11, col_widths: Sequence[float] = None, header=True, max_total_rows=150, max_cell_lines=MAX_TABLE_CELL_LINES):
     """Adds one or more content slides to hold `rows`, splitting into
     additional "(cont'd)" slides instead of letting a long table overflow
     a single slide. Use this instead of add_content_slide+add_table for
@@ -527,8 +549,19 @@ def add_table_slides(prs, title: str, rows: List[Sequence], font_size=11, col_wi
         data_rows = data_rows[:max_total_rows]
         data_rows.append([f"+ {len(rows) - 1 - max_total_rows} more row(s) not shown"] + [""] * (len(rows[0]) - 1))
 
-    rows_per_page = _rows_per_page(font_size)
-    chunks = [data_rows[i:i + rows_per_page] for i in range(0, len(data_rows), rows_per_page)] or [[]]
+    chunks = []
+    current = []
+    for row in data_rows:
+        candidate = current + [row]
+        page_rows = ([header_row] if header else []) + candidate
+        _, _, row_heights = _table_layout(page_rows, CONTENT_W, CONTENT_H, font_size, col_widths, max_cell_lines)
+        if current and sum(row_heights) > CONTENT_H:
+            chunks.append(current)
+            current = [row]
+        else:
+            current = candidate
+    if current or not chunks:
+        chunks.append(current)
     n_pages = len(chunks)
 
     slides = []
@@ -536,7 +569,7 @@ def add_table_slides(prs, title: str, rows: List[Sequence], font_size=11, col_wi
         page_title = title if n_pages == 1 else f"{title} ({i + 1}/{n_pages})"
         slide = add_content_slide(prs, page_title)
         page_rows = ([header_row] if header else []) + chunk
-        add_table(slide, page_rows, font_size=font_size, col_widths=col_widths, header=header, max_rows=len(page_rows), center=True)
+        add_table(slide, page_rows, font_size=font_size, col_widths=col_widths, header=header, max_rows=len(page_rows), center=True, max_cell_lines=max_cell_lines)
         slides.append(slide)
     return slides
 

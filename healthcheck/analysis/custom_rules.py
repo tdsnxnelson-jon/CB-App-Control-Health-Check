@@ -25,6 +25,9 @@ def _table_from_df(df: pd.DataFrame, columns: list[str]) -> list[list]:
     present = [col for col in columns if col in df.columns]
     if not present:
         return []
+    sort_cols = [col for col in ("Rule Type", "Action") if col in present]
+    if sort_cols:
+        df = df.sort_values(sort_cols, kind="stable")
     values = df[present].fillna("").astype(str).values.tolist()
     return [present] + values[:MAX_LIST_ROWS]
 
@@ -36,24 +39,27 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
         return result
 
     df = df.copy()
-    total = len(df)
     enabled = _enabled_mask(df)
+    rule_type = _series(df, "Rule Type")
+    in_scope_type = rule_type.str.casefold().isin(["file creation control", "execution control"])
+
+    # Limit the whole analysis to enabled File Creation Control / Execution Control rules.
+    df = df[enabled & in_scope_type].copy()
+    total = len(df)
     rule_type = _series(df, "Rule Type")
     action = _series(df, "Action")
     path = _series(df, "Path")
     process = _series(df, "Process")
     user_group = _series(df, "User or Group")
 
-    invalid_path = df[enabled & path.ne("") & path.str.endswith(("\\", "/"), na=False)]
+    invalid_path = df[path.ne("") & path.str.endswith(("\\", "/"), na=False)]
     exec_blocking = df[
-        enabled
-        & rule_type.str.casefold().eq("execution control")
+        rule_type.str.casefold().eq("execution control")
         & action.str.contains("block", case=False, na=False)
     ]
-    file_creation = df[enabled & rule_type.str.casefold().eq("file creation control")]
+    file_creation = df[rule_type.str.casefold().eq("file creation control")]
     broad_scope = df[
-        enabled
-        & process.eq("*")
+        process.eq("*")
         & user_group.str.casefold().eq("any user")
     ]
 
@@ -61,7 +67,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
     file_creation_count = len(file_creation)
     ratio = file_creation_count / exec_block_count if exec_block_count else None
 
-    result.findings.append(Finding("info", f"{total:,} custom rule(s) analyzed; {int(enabled.sum()):,} are enabled."))
+    result.findings.append(Finding("info", f"{total:,} enabled File Creation Control / Execution Control rule(s) analyzed."))
 
     if len(invalid_path):
         result.findings.append(Finding(
@@ -102,7 +108,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
 
     result.tables["metrics"] = [
         ["Metric", "Value"],
-        ["Enabled custom rules", int(enabled.sum())],
+        ["Enabled custom rules (in scope)", total],
         ["Enabled blocking Execution Control", exec_block_count],
         ["Enabled File Creation Control", file_creation_count],
         ["File Creation : blocking Execution", ratio_text],
@@ -113,7 +119,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
     result.tables["exec_blocking"] = _table_from_df(exec_blocking, ["Name", "Operation", "Path", "Process", "User or Group", "Policy"])
     result.tables["broad_scope"] = _table_from_df(broad_scope, ["Rule Type", "Name", "Action", "Path", "Process", "User or Group", "Policy"])
 
-    counts = rule_type[enabled].replace("", "(blank)").value_counts().head(12)
+    counts = rule_type.replace("", "(blank)").value_counts().head(12)
     if len(counts):
         result.charts["rule_types"] = ("bar", counts.index.tolist(), {"Enabled rules": counts.values.tolist()})
 

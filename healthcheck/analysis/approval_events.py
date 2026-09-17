@@ -93,7 +93,13 @@ def build_slides(prs, result: AnalysisResult) -> None:
             ph.add_footnote(slide, MISSING_RULE_FOOTNOTE)
 
     if "untrusted_approvals" in result.tables:
-        slides = ph.add_table_slides(prs, "Rule-Approved Files Without Trusted Publisher", result.tables["untrusted_approvals"], font_size=9)
+        slides = ph.add_table_slides(
+            prs,
+            "Rule-Approved Files Without Trusted Publisher",
+            result.tables["untrusted_approvals"],
+            font_size=9,
+            max_cell_lines=8,
+        )
         if any(str(row[0]).endswith("*") for row in result.tables["untrusted_approvals"][1:]):
             for slide in slides:
                 ph.add_footnote(slide, MISSING_RULE_FOOTNOTE)
