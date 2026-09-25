@@ -1,5 +1,5 @@
 """
-Block Analysis - based on "BlockAnalysis v6.2.sql".
+Block Analysis - based on "BlockAnalysis v6.3 aggregated.sql".
 
 Enforcement events (execution/write blocks, prompts, terminations) classified
 by likely cause (logon script, remote execution, approved-publisher gap,
@@ -7,11 +7,11 @@ truly unapproved, etc). Useful for spotting noisy hosts/paths and whether
 blocks are mostly expected (unapproved software) vs. process issues
 (remote/logon-script patterns that may need policy tuning).
 
-v6.2 widens the subtype set (v6.1 only returned two "Execution prompt"
+v6.2 widened the subtype set (v6.1 only returned two "Execution prompt"
 subtypes, so High-enforcement silent blocks were missing entirely) and adds
 BlockOutcome / BlockCategory columns. Rows whose outcome is "Allowed" are
 prompts the user let through - they are reported separately, not counted as
-blocks.
+blocks. v6.3 preserves that scope but groups duplicate events into EventCount.
 """
 import re
 
@@ -44,6 +44,8 @@ _VERSION_SEGMENT = re.compile(
     r"^(v?\d+(\.\d+)+.*|\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?|[0-9a-f]{32,})$",
     re.IGNORECASE,
 )
+_GENERATED_NUMERIC_SEGMENT = re.compile(r"^\d{4,}$")
+_TEMPORARY_FILES_SUFFIX = re.compile(r"(?<=temporary files )\d+$", re.IGNORECASE)
 _USER_DIR = re.compile(r"^[a-z]:\\users\\[^\\]+", re.IGNORECASE)
 
 
@@ -90,13 +92,31 @@ def _col(df: pd.DataFrame, name: str) -> pd.Series:
     return df[name].fillna("").astype(str).str.strip().str.strip('"')
 
 
+def _event_counts(df: pd.DataFrame) -> pd.Series:
+    """Positive event weights; legacy row-level exports default to one."""
+    if "EventCount" not in df.columns:
+        return pd.Series(1, index=df.index, dtype="int64")
+    counts = pd.to_numeric(df["EventCount"], errors="coerce").fillna(1)
+    return counts.where(counts > 0, 1).astype("int64")
+
+
+def _weighted_counts(values: pd.Series, weights: pd.Series) -> pd.Series:
+    weighted = pd.DataFrame({"value": values, "weight": weights})
+    return weighted.groupby("value", dropna=False)["weight"].sum().sort_values(ascending=False)
+
+
 def _normalize_dir(path: str) -> str:
     """Collapse a directory to the shape a path-based approval rule would use."""
     p = path.strip().strip('"').lower().rstrip("\\/")
     if not p:
         return ""
     p = _USER_DIR.sub("<userprofiles>", p)
-    segments = ["*" if _VERSION_SEGMENT.match(seg) else seg for seg in p.split("\\")]
+    segments = []
+    for segment in p.split("\\"):
+        if _VERSION_SEGMENT.match(segment) or _GENERATED_NUMERIC_SEGMENT.match(segment):
+            segments.append("*")
+        else:
+            segments.append(_TEMPORARY_FILES_SUFFIX.sub("*", segment))
     if "*" in segments:  # everything under the first variable segment is the same rule
         segments = segments[: segments.index("*") + 1]
     return "\\".join(segments)
@@ -148,13 +168,14 @@ def _remediations(blocks: pd.DataFrame) -> tuple:
     non-overlapping so "top N actions cover X% of blocks" is not double counted.
     """
     unassigned = pd.Series(True, index=blocks.index)
+    weights = _event_counts(blocks)
     candidates = []
 
     for action, keys in _candidate_keys(blocks):
         eligible = unassigned & keys.ne("")
         if not eligible.any():
             continue
-        counts = keys[eligible].value_counts()
+        counts = _weighted_counts(keys[eligible], weights[eligible])
         for key, count in counts.items():
             if count < MIN_CANDIDATE_BLOCKS:
                 continue
@@ -170,7 +191,7 @@ def _remediations(blocks: pd.DataFrame) -> tuple:
             candidates.append({
                 "action": action,
                 "target": _display_target(action, key, rows),
-                "blocks": int(len(rows)),
+                "blocks": int(count),
                 "hosts": int(_col(rows, "ComputerName").nunique()),
                 "users": int(_col(rows, "UserName").nunique()),
                 "risk": risk,
@@ -180,7 +201,7 @@ def _remediations(blocks: pd.DataFrame) -> tuple:
     candidates.sort(key=lambda c: c["blocks"], reverse=True)
     safe = [c for c in candidates if not c["risk"]]
     risky = [c for c in candidates if c["risk"]]
-    return safe, risky, int(unassigned.sum())
+    return safe, risky, int(weights[unassigned].sum())
 
 
 def _display_target(action: str, key: str, rows: pd.DataFrame) -> str:
@@ -198,9 +219,11 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
 
     df = df.copy()
     outcome = _outcomes(df)
-    allowed_count = int((outcome == "Allowed").sum())
+    weights = _event_counts(df)
+    allowed_count = int(weights[outcome == "Allowed"].sum())
     blocks = df.loc[outcome != "Allowed"]
-    total = len(blocks)
+    block_weights = weights.loc[blocks.index]
+    total = int(block_weights.sum())
 
     if not total:
         result.error = (
@@ -209,17 +232,17 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
         return result
 
     category = blocks.get("RuleName", pd.Series(dtype=object)).map(_categorize)
-    by_category = category.value_counts()
+    by_category = _weighted_counts(category, block_weights)
     by_subtype = (
-        df["BlockSubtype"].fillna("(unknown)").value_counts()
+        _weighted_counts(df["BlockSubtype"].fillna("(unknown)"), weights)
         if "BlockSubtype" in df.columns
         else pd.Series(dtype=int)
     )
 
-    by_computer = blocks["ComputerName"].value_counts() if "ComputerName" in blocks.columns else pd.Series(dtype=int)
-    by_path = blocks["FilePath"].value_counts() if "FilePath" in blocks.columns else pd.Series(dtype=int)
+    by_computer = _weighted_counts(blocks["ComputerName"], block_weights) if "ComputerName" in blocks.columns else pd.Series(dtype=int)
+    by_path = _weighted_counts(blocks["FilePath"], block_weights) if "FilePath" in blocks.columns else pd.Series(dtype=int)
     timestamps = pd.to_datetime(blocks.get("TimeStamp"), errors="coerce")
-    by_day = blocks.loc[timestamps.notna()].groupby(timestamps.dt.date).size().sort_index()
+    by_day = block_weights[timestamps.notna()].groupby(timestamps[timestamps.notna()].dt.date).sum().sort_index()
 
     result.findings.append(Finding("info", f"{total:,} block event(s) analyzed."))
 
@@ -228,7 +251,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
             "caution",
             "This export came from BlockAnalysis v6.1, which only returned execution-prompt events - "
             "silent High-enforcement blocks are missing, so block volume and remediation coverage are understated.",
-            "Re-run the data collection with BlockAnalysis v6.2 to capture all enforcement events.",
+            "Re-run the data collection with BlockAnalysis v6.3 aggregated to capture all enforcement events.",
         ))
 
     if allowed_count:
@@ -239,7 +262,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
         ))
 
     if "BlockCategory" in blocks.columns:
-        write_blocks = int((blocks["BlockCategory"] == "Write").sum())
+        write_blocks = int(block_weights[blocks["BlockCategory"] == "Write"].sum())
         if write_blocks:
             result.findings.append(Finding(
                 "info",

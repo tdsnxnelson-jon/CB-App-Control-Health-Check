@@ -72,13 +72,12 @@ SCRIPTS = {
         ],
     },
     "block_analysis": {
-        "sql_file": "BlockAnalysis v6.2.sql",
+        "sql_file": "BlockAnalysis v6.3 aggregated.sql",
         "kind": CSV,
         "filename_match": ["blockanalysis", "block analysis"],
         "required_columns": [
-            "TimeStamp", "ComputerName", "Policy", "Subtype", "BlockSubtype",
-            "RuleName", "DiscoveredBy", "FilePath", "Publisher",
-            "PublisherState",
+            "TimeStamp", "ComputerName", "Policy", "BlockSubtype", "RuleName",
+            "FilePath", "Publisher", "PublisherState",
         ],
     },
     "unapproved_files": {
