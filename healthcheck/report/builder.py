@@ -73,6 +73,7 @@ def build_report(results: dict, customer_name: str, output_path: str, appc_serve
             prune_results.append(a)
             all_findings.append(("purge_antibodies_scope", a.findings))
     if prune_results:
+        db_maintenance.reconcile_findings(prune_results)
         db_maintenance.build_slides(prs, prune_results)
 
     _add_executive_summary(prs, all_findings)

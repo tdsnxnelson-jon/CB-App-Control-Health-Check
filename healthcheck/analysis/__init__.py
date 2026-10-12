@@ -14,6 +14,7 @@ class Finding:
     severity: str  # "critical" | "warning" | "caution" | "ok" | "info"
     message: str
     recommendation: str = None  # actionable next step; expected for anything above "info"
+    issue_key: str = None
 
 
 @dataclass

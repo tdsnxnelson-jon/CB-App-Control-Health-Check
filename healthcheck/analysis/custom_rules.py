@@ -64,6 +64,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
     ]
 
     exec_block_count = len(exec_blocking)
+    exec_count = int(rule_type.str.casefold().eq("execution control").sum())
     file_creation_count = len(file_creation)
     ratio = file_creation_count / exec_block_count if exec_block_count else None
 
@@ -109,6 +110,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
     result.tables["metrics"] = [
         ["Metric", "Value"],
         ["Enabled custom rules (in scope)", total],
+        ["Enabled Execution Control", exec_count],
         ["Enabled blocking Execution Control", exec_block_count],
         ["Enabled File Creation Control", file_creation_count],
         ["File Creation : blocking Execution", ratio_text],
@@ -119,9 +121,12 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
     result.tables["exec_blocking"] = _table_from_df(exec_blocking, ["Name", "Operation", "Path", "Process", "User or Group", "Policy"])
     result.tables["broad_scope"] = _table_from_df(broad_scope, ["Rule Type", "Name", "Action", "Path", "Process", "User or Group", "Policy"])
 
-    counts = rule_type.replace("", "(blank)").value_counts().head(12)
-    if len(counts):
-        result.charts["rule_types"] = ("bar", counts.index.tolist(), {"Enabled rules": counts.values.tolist()})
+    if total:
+        result.charts["rule_types"] = (
+            "bar",
+            ["File Creation Control", "Execution Control (blocking)"],
+            {"Enabled rules": [file_creation_count, exec_block_count]},
+        )
 
     return result
 

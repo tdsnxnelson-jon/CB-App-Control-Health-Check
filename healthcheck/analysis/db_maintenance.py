@@ -10,7 +10,7 @@ common cause of runaway DB growth on older App Control servers.
 """
 import pandas as pd
 
-from . import AnalysisResult, Finding
+from . import AnalysisResult, Finding, severity_rank
 from ..report import pptx_helpers as ph
 
 BACKLOG_WARN_ROWS = 100_000
@@ -18,6 +18,20 @@ BACKLOG_CRITICAL_ROWS = 1_000_000
 ZERO_PREVALENCE_WARN_PCT = 0.26
 ZERO_PREVALENCE_CRITICAL_PCT = 0.50
 LOW_PURGEABLE_ZERO_PREV_PCT = 0.01
+CATALOG_ZERO_PREVALENCE = "antibodies.zero_prevalence"
+
+
+def reconcile_findings(results: list) -> None:
+    """Count shared issues once, keeping the highest-severity observation."""
+    selected = {}
+    for result in results:
+        for finding in result.findings:
+            key = ("issue", finding.issue_key) if finding.issue_key else ("text", finding.severity, finding.message)
+            previous = selected.get(key)
+            if previous is None or severity_rank(finding.severity) > severity_rank(previous[1].severity):
+                selected[key] = (result, finding)
+    for result in results:
+        result.findings[:] = [finding for owner, finding in selected.values() if owner is result]
 
 
 def _delete_keep_counts(df: pd.DataFrame):
@@ -114,6 +128,7 @@ def analyze_daily_prune(sheets: dict) -> AnalysisResult:
                 result.findings.append(Finding("warning", message, "Plan cleanup of zero-prevalence file catalog rows before catalog bloat becomes a larger database performance issue."))
             else:
                 result.findings.append(Finding("ok", message))
+            result.findings[-1].issue_key = CATALOG_ZERO_PREVALENCE
         # table intentionally omitted here - duplicates the "Purge Scope" table
         # from analyze_purge_antibodies() (same maxAgeDays scope).
 
@@ -148,6 +163,7 @@ def analyze_purge_antibodies(df: pd.DataFrame) -> AnalysisResult:
             result.findings.append(Finding("warning", message, "Plan cleanup of zero-prevalence file catalog rows before catalog bloat becomes a larger database performance issue."))
         else:
             result.findings.append(Finding("ok", message))
+        result.findings[-1].issue_key = CATALOG_ZERO_PREVALENCE
 
         purgeable_zero_prev_pct = purgeable_zero_prev / zero_prev if zero_prev and pd.notna(zero_prev) and purgeable_zero_prev is not None and pd.notna(purgeable_zero_prev) else None
         if purgeable_zero_prev_pct is not None and pd.notna(purgeable_zero_prev_pct) and purgeable_zero_prev_pct < LOW_PURGEABLE_ZERO_PREV_PCT:
