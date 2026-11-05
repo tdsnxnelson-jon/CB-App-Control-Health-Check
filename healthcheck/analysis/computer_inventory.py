@@ -1,47 +1,146 @@
 """
 Computer inventory analysis from the App Control console Computers export.
 """
+import logging
+import re
+from datetime import date, datetime
+from html.parser import HTMLParser
+from urllib.request import Request, urlopen
+
 import pandas as pd
-from datetime import date
 
 from . import AnalysisResult, Finding
 from ..report import pptx_helpers as ph
 
+log = logging.getLogger(__name__)
+
 MAX_LIST_ROWS = 150
 
-_WINDOWS_LIFECYCLE_DATES = {
-    (8, 12): ("2026-06-22", None, None),
-    (8, 11): ("2026-03-05", "2027-09-01", None),
-    (8, 10): ("2025-02-26", "2027-02-26", None),
-    (8, 9): ("2023-04-24", "2024-10-24", "2026-10-24"),
-    (8, 8): ("2022-10-20", "2024-04-20", "2026-04-20"),
-    (8, 7): ("2021-11-25", "2023-05-25", "2025-05-25"),
-    (8, 6): ("2021-04-01", "2022-10-01", "2024-10-01"),
-    (8, 5): ("2020-11-03", "2022-05-03", "2024-05-03"),
-    (8, 1): ("2019-06-03", "2021-06-03", "2022-12-03"),
+_AGENT_OER_URLS = {
+    "windows_desktop": "https://techdocs.broadcom.com/us/en/carbon-black/app-control/app-control-agents/index/cbappc-win-agent-desktop-oer/GUID-32AC0CFE-6CB3-4E96-A7B3-D9BA1F32BE0F-en.html",
+    "macos": "https://techdocs.broadcom.com/us/en/carbon-black/app-control/app-control-agents/index/cbappc-macos-agent-oer_tile/GUID-D6B6EEA2-8665-4938-9D27-87D100903A30-en.html",
+    "linux": "https://techdocs.broadcom.com/us/en/carbon-black/app-control/app-control-agents/index/cbappc-linux-agent-oer-tile/GUID-054C2FCD-DA66-4D83-AABD-0F90EC543DAA-en.html",
 }
 
-_AGENT_LIFECYCLE_DATES = {
-    "windows_desktop": _WINDOWS_LIFECYCLE_DATES,
-    "windows_server": _WINDOWS_LIFECYCLE_DATES,
-    "linux": {
-        (8, 9): ("2026-05-11", None, None),
-        (8, 8): ("2024-05-08", "2026-06-08", "2027-11-11"),
-        (8, 7): ("2023-12-14", "2026-03-14", None),
-        (8, 6): ("2021-02-04", "2024-08-04", None),
-        (8, 5): ("2020-09-25", "2024-03-25", None),
-        (7, 4): ("2019-05-31", "2022-11-30", None),
-    },
-    "macos": {
-        (8, 11): ("2026-09-09", None, None),
-        (8, 10): ("2025-09-08", None, None),
-        (8, 9): ("2023-07-27", "2024-07-27", "2026-03-08"),
-        (8, 8): ("2023-02-22", "2024-08-22", "2026-08-22"),
-        (8, 7): ("2021-11-11", "2023-05-11", "2025-05-11"),
-        (8, 6): ("2021-06-01", "2022-12-01", "2024-12-01"),
-        (8, 5): ("2021-03-17", "2022-09-17", "2024-09-17"),
-    },
-}
+_LifecycleDates = tuple[date | None, date | None, date | None]
+
+
+class _HtmlTableParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tables: list[list[list[str]]] = []
+        self._table_depth = 0
+        self._table: list[list[str]] | None = None
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag == "table":
+            if self._table_depth == 0:
+                self._table = []
+            self._table_depth += 1
+        elif self._table_depth == 1 and tag == "tr":
+            self._row = []
+        elif self._table_depth == 1 and self._row is not None and tag in ("td", "th"):
+            self._cell = []
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._table_depth == 1 and tag in ("td", "th") and self._cell is not None:
+            self._row.append(" ".join(" ".join(self._cell).split()))
+            self._cell = None
+        elif self._table_depth == 1 and tag == "tr" and self._row is not None:
+            self._table.append(self._row)
+            self._row = None
+        elif tag == "table" and self._table_depth:
+            self._table_depth -= 1
+            if self._table_depth == 0 and self._table is not None:
+                self.tables.append(self._table)
+                self._table = None
+
+
+def _parse_lifecycle_date(value: str) -> date | None:
+    normalized = " ".join(value.strip().split())
+    if normalized.casefold() in ("", "--", "-", "—", "none at this time") or normalized.casefold().startswith("see:"):
+        return None
+
+    normalized = re.sub(r"^Sept\b", "Sep", normalized)
+    for date_format in ("%d %B %Y", "%d %b %Y", "%B %Y", "%b %Y"):
+        try:
+            return datetime.strptime(normalized, date_format).date()
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognized lifecycle date: {value!r}")
+
+
+def _parse_agent_lifecycle_dates(html: str) -> dict[tuple[int, int], _LifecycleDates]:
+    parser = _HtmlTableParser()
+    parser.feed(html)
+    lifecycle_dates: dict[tuple[int, int], _LifecycleDates] = {}
+
+    for table in parser.tables:
+        for header_index, header in enumerate(table):
+            columns: dict[str, int] = {}
+            for index, cell in enumerate(header):
+                label = cell.casefold()
+                if "agent version" in label:
+                    columns["version"] = index
+                elif "general availability" in label or "enter standard" in label:
+                    columns["ga"] = index
+                elif "end of service" in label or "enter extended" in label:
+                    columns["eos"] = index
+                elif "end of life" in label or "enter end of support" in label:
+                    columns["eol"] = index
+
+            if "version" not in columns or not any(key in columns for key in ("ga", "eos", "eol")):
+                continue
+
+            for row in table[header_index + 1:]:
+                version_index = columns["version"]
+                if version_index >= len(row):
+                    continue
+                version_match = re.match(r"^\s*(\d+)\.(\d+)(?:\.|$)", row[version_index])
+                if not version_match:
+                    continue
+
+                def lifecycle_value(key: str) -> date | None:
+                    index = columns.get(key)
+                    return _parse_lifecycle_date(row[index]) if index is not None and index < len(row) else None
+
+                version = (int(version_match.group(1)), int(version_match.group(2)))
+                lifecycle_dates[version] = (
+                    lifecycle_value("ga"),
+                    lifecycle_value("eos"),
+                    lifecycle_value("eol"),
+                )
+
+    if not lifecycle_dates:
+        raise ValueError("No agent lifecycle rows found in Broadcom OER page")
+    return lifecycle_dates
+
+
+def _fetch_agent_lifecycle_dates() -> dict[str, dict[tuple[int, int], _LifecycleDates]]:
+    lifecycle_dates = {}
+    for platform, url in _AGENT_OER_URLS.items():
+        try:
+            request = Request(url, headers={"User-Agent": "CB-App-Control-Health-Check"})
+            with urlopen(request, timeout=15) as response:
+                html = response.read().decode("utf-8")
+            lifecycle_dates[platform] = _parse_agent_lifecycle_dates(html)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            log.warning(
+                "Could not refresh %s agent lifecycle dates from Broadcom TechDocs; "
+                "lifecycle values for this platform will be Unknown: %s",
+                platform,
+                exc,
+            )
+
+    if "windows_desktop" in lifecycle_dates:
+        lifecycle_dates["windows_server"] = lifecycle_dates["windows_desktop"]
+    return lifecycle_dates
 
 
 def _series(df: pd.DataFrame, column: str, default: str = "") -> pd.Series:
@@ -65,17 +164,23 @@ def _lifecycle_platform(os_name: str) -> str:
     return ""
 
 
-def _agent_lifecycle_status(os_name: str, version: str, as_of: date | None = None) -> str:
+def _agent_lifecycle_status(
+    os_name: str,
+    version: str,
+    as_of: date | None = None,
+    lifecycle_dates: dict[str, dict[tuple[int, int], _LifecycleDates]] | None = None,
+) -> str:
     platform = _lifecycle_platform(os_name)
     parts = str(version).split(".")
     if not platform or len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
         return "Unknown"
-    lifecycle_dates = _AGENT_LIFECYCLE_DATES.get(platform, {}).get((int(parts[0]), int(parts[1])))
-    if lifecycle_dates is None:
+    platform_dates = (lifecycle_dates or {}).get(platform, {})
+    version_dates = platform_dates.get((int(parts[0]), int(parts[1])))
+    if version_dates is None:
         return "Unknown"
 
     current_date = as_of or date.today()
-    ga_date, eos_date, eol_date = (date.fromisoformat(value) if value else None for value in lifecycle_dates)
+    ga_date, eos_date, eol_date = version_dates
     if ga_date and current_date < ga_date:
         return "Not GA"
     if eol_date and current_date >= eol_date:
@@ -85,7 +190,11 @@ def _agent_lifecycle_status(os_name: str, version: str, as_of: date | None = Non
     return "GA"
 
 
-def _agent_version_table(df: pd.DataFrame, as_of: date | None = None) -> list[list]:
+def _agent_version_table(
+    df: pd.DataFrame,
+    as_of: date | None = None,
+    lifecycle_dates: dict[str, dict[tuple[int, int], _LifecycleDates]] | None = None,
+) -> list[list]:
     os_columns = {str(column).strip().casefold(): column for column in df.columns}
     os_column = next((os_columns[name] for name in ("operating system", "os name", "os", "platform") if name in os_columns), None)
     operating_system = _series(df, os_column, "Unknown") if os_column else pd.Series(["Unknown"] * len(df), index=df.index)
@@ -105,7 +214,7 @@ def _agent_version_table(df: pd.DataFrame, as_of: date | None = None) -> list[li
         rows.append([
             os_name,
             version,
-            _agent_lifecycle_status(os_name, version, as_of),
+            _agent_lifecycle_status(os_name, version, as_of, lifecycle_dates),
             int(count),
             f"{(count / total):.1%}" if total else "0.0%",
         ])
@@ -209,7 +318,7 @@ def analyze(df: pd.DataFrame) -> AnalysisResult:
         ("upgrade_status", "Upgrade Status"),
     ]:
         result.tables[key] = _count_table(df, column, f"Count of {column}")
-    result.tables["agent_version"] = _agent_version_table(df)
+    result.tables["agent_version"] = _agent_version_table(df, lifecycle_dates=_fetch_agent_lifecycle_dates())
 
     return result
 
@@ -297,4 +406,7 @@ def _add_policy_agent_slide(prs, result: AnalysisResult) -> None:
         rows = result.tables.get(key)
         if rows:
             ph.add_table(slide, rows, left=left, top=top, width=width, height=height, font_size=8, max_rows=8)
-    ph.add_footnote(slide, f"Agent lifecycle stage as of {date.today().isoformat()}; based on Broadcom platform-specific OER lifecycle dates.")
+    ph.add_footnote(
+        slide,
+        f"Agent lifecycle stage as of {date.today().isoformat()}; Broadcom platform-specific OER dates refreshed each run when available.",
+    )

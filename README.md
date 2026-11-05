@@ -127,7 +127,10 @@ environments to avoid SQL arithmetic overflow errors during data collection.
   wildcard Process + Any User scope callouts.
 - **Computer Inventory Health** - connected/active computer summaries,
   connected computer list, disconnected >10 day list, and policy/agent
-  health pivots from the console Computers export.
+  health pivots from the console Computers export. Agent lifecycle dates are
+  refreshed from Broadcom TechDocs on each report run; if a platform's page
+  cannot be reached or parsed, its lifecycle values are shown as Unknown and
+  a warning is logged.
 - **Custom Rule Approvals** - rule-approved files with no trusted
   publisher (policy risk).
 - **Block Analysis** - blocked-execution root cause breakdown (remote
