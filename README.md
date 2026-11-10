@@ -7,12 +7,106 @@ analyzed PPTX report instead of manual review + slide building.
 ## How it works
 
 1. The customer's DBA/admin runs the SQL scripts (unchanged) against the
-   App Control SQL Server database using SSMS.
+   App Control SQL Server database using SSMS, or runs
+   `SQL Scripts\Collect-HealthCheckData.ps1` once to execute every script
+   and write all exports (optionally zipped) automatically - see
+   **Automated collection** below.
 2. Each script's result grid(s) are exported and dropped into one input
    folder (see **Export instructions** below).
 3. `main.py` scans that folder, loads whatever it finds, runs the analysis,
    and writes a single PPTX report. Missing/unreadable inputs are skipped
    with a warning rather than failing the whole run.
+
+## Automated collection
+
+`SQL Scripts\Collect-HealthCheckData.ps1` runs all of the SQL scripts in
+sequence and writes correctly named CSV/`.rpt` exports, including automatic
+time-chunking for Unapproved File Analysis. It replaces the manual SSMS
+export procedure; the manual steps under **Export instructions** below
+remain a valid fallback and produce identical files.
+
+### Requirements
+
+- A Windows machine that can reach the App Control SQL Server instance
+  (the App Control server itself, the SQL Server host, or a DBA
+  workstation).
+- Windows PowerShell 5.1 or later. No extra modules, SSMS, or Python are
+  required on that machine.
+- A Windows account or SQL login with read access to the `das` database.
+  Some sections of the CbP analysis script also need `VIEW SERVER STATE`;
+  without it those sections are skipped with a logged message.
+
+### How to run
+
+1. Copy the entire `SQL Scripts` folder to the collection machine (the
+   script runs the `.sql` files that sit next to it).
+2. Export the **Computers** and **Custom Rules** lists from the App Control
+   console as CSV (see **Exporting data from the App Control UI** in
+   `SQL Scripts/README.md`). These are the only inputs that cannot be
+   collected from SQL.
+3. Open a PowerShell prompt in the `SQL Scripts` folder and run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\Collect-HealthCheckData.ps1 -Server SQLHOST01 -Zip
+   ```
+
+   Use `-ExecutionPolicy Bypass` as shown if script execution is disabled
+   on the machine (the default on most servers). For a named instance use
+   `-Server "SQLHOST01\INSTANCE"`; for an Availability Group, point
+   `-Server` at the listener and add `-ReadOnlyIntent`.
+4. When prompted, enter the paths to the two console exports from step 2
+   (or pass them up front with `-ComputersExport`/`-CustomRulesExport`;
+   press Enter to skip and add them to the folder manually later).
+5. Send back the resulting `HealthCheckExport_<timestamp>.zip` (or the
+   output folder). Each script runs one at a time; failures are reported
+   and collection continues, so a partial run still produces a usable
+   report with those sections skipped.
+
+Run the report against the collected folder:
+
+```powershell
+python main.py --input "C:\path\to\HealthCheckExport_<timestamp>" --customer "Acme Corp"
+```
+
+### Command-line arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `-Server` | (required) | SQL Server instance hosting the App Control database, e.g. `SQLHOST01`, `SQLHOST01\INSTANCE`, or an AG listener name. |
+| `-Database` | `das` | Initial database for the connection. The scripts themselves switch to `das`. |
+| `-OutputFolder` | `.\HealthCheckExport_<timestamp>` | Folder the exports are written into. Created if missing. |
+| `-SqlCredential` | Windows integrated auth | SQL login credential, e.g. `-SqlCredential (Get-Credential)`. Omit to use the current Windows account. |
+| `-UnapprovedStart` | 7 days ago | Start (inclusive) of the Unapproved File Analysis reporting period. |
+| `-UnapprovedEnd` | now | End (exclusive) of the Unapproved File Analysis reporting period. Windows that exceed the script's row cap are automatically split into smaller non-overlapping chunks. |
+| `-ComputersExport` | prompt | Path to the console **Computers** export (CSV/TXT); copied into the output folder. |
+| `-CustomRulesExport` | prompt | Path to the console **Custom Rules** export (CSV/TXT); copied into the output folder. |
+| `-Zip` | off | Compress the output folder to `<folder>.zip` after collection. If the data exceeds the 2 GB `Compress-Archive` limit, the script skips zipping and asks you to zip the folder manually. |
+| `-ReadOnlyIntent` | off | Adds `ApplicationIntent=ReadOnly` so an Availability Group listener routes the session to a readable secondary. Recommended for production. |
+| `-CommandTimeoutSec` | `3600` | Per-batch SQL command timeout in seconds; `0` = unlimited. Increase for very large databases. |
+| `-NonInteractive` | off | Never prompt (for scheduled runs). Missing console exports are reported as warnings instead. |
+
+### Examples
+
+```powershell
+# Default run: Windows auth, last 7 days of unapproved-file data, zipped
+powershell -ExecutionPolicy Bypass -File .\Collect-HealthCheckData.ps1 -Server SQLHOST01 -Zip
+
+# AG secondary, SQL login, 14-day unapproved period, console exports supplied
+powershell -ExecutionPolicy Bypass -File .\Collect-HealthCheckData.ps1 `
+    -Server AGLISTENER -ReadOnlyIntent `
+    -SqlCredential (Get-Credential) `
+    -UnapprovedStart (Get-Date).AddDays(-14) `
+    -ComputersExport C:\Exports\Computers_20260915.csv `
+    -CustomRulesExport C:\Exports\CustomRules_20260915.csv -Zip
+
+# Scheduled/unattended run into a fixed folder, no prompts
+powershell -ExecutionPolicy Bypass -File .\Collect-HealthCheckData.ps1 `
+    -Server SQLHOST01 -NonInteractive -OutputFolder D:\HealthCheck\Export -Zip
+```
+
+The production cautions in `SQL Scripts/README.md` still apply: prefer a
+readable Availability Group secondary (or a low-activity window on the
+primary) and monitor the server during the run.
 
 ## Install
 
